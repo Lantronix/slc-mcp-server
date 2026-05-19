@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "slc-mcp-server": {
+      "command": "wsl.exe",
+      "args": [
+        "bash", "-lc",
+        "cd /mnt/c/Users/YOUR_USERNAME/Projects/git/slc-mcp-server && python run_server.py"
+      ],
+      "env": {
+        "SLC_CREDENTIAL_PROVIDER": "env",
+        "SLC_VERIFY_SSL": "false",
+        "SLC_SLC9000_IP": "192.168.1.100",
+        "SLC_SLC9000_USERNAME": "admin",
+        "SLC_SLC9000_PASSWORD": "your-password-here"
+      }
+    }
+  }
+}

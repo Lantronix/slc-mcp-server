@@ -11,13 +11,14 @@ log = logging.getLogger(__name__)
 _TIMEOUT = int(os.getenv("SLC_REQUEST_TIMEOUT", "30"))
 _PATH_PREFIX = os.getenv("SLC_API_PATH_PREFIX", "/api/v2")
 _VERIFY_SSL = os.getenv("SLC_VERIFY_SSL", "false").lower() not in ("false", "0", "no")
+_SCHEME = os.getenv("SLC_URL_SCHEME", "https")
 
 if not _VERIFY_SSL:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def _url(ip: str, path: str) -> str:
-    return f"https://{ip}{_PATH_PREFIX}{path}"
+    return f"{_SCHEME}://{ip}{_PATH_PREFIX}{path}"
 
 
 def _ok(data: dict) -> dict:

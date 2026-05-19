@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "slc-mcp-server": {
+      "command": "python",
+      "args": ["/path/to/slc-mcp-server/run_server.py"],
+      "env": {
+        "SLC_CREDENTIAL_PROVIDER": "env",
+        "SLC_VERIFY_SSL": "false",
+        "SLC_SLC9000_IP": "192.168.1.100",
+        "SLC_SLC9000_USERNAME": "admin",
+        "SLC_SLC9000_PASSWORD": "your-password-here"
+      }
+    }
+  }
+}
