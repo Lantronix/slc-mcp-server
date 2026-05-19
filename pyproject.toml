@@ -1,0 +1,25 @@
+[project]
+name = "slc-mcp-server"
+version = "0.1.0"
+description = "FastMCP server exposing SLC device REST API as MCP tools"
+requires-python = ">=3.11"
+dependencies = [
+  "fastmcp",
+  "requests",
+  "python-dotenv",
+  "hvac",
+  "boto3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "responses",
+  "pytest-httpserver",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
