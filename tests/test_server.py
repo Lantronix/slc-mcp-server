@@ -71,7 +71,7 @@ def test_tool_count():
         capture_output=True, text=True,
         cwd="/mnt/c/Users/rhogg/Projects/git/slc-mcp-server",
     )
-    assert int(result.stdout.strip()) == 35
+    assert int(result.stdout.strip()) == 33
 
 
 # ---------------------------------------------------------------------------
@@ -190,16 +190,6 @@ def test_set_firmware_bootbank_calls_put():
         result = server.set_firmware_bootbank("device-1", 2, confirm=True)
     assert result["ok"] is True
     mock_put.assert_called_once_with("device-1", "/firmware/bootbank", {"bank": 2})
-
-
-# ---------------------------------------------------------------------------
-# port_action stub
-# ---------------------------------------------------------------------------
-
-def test_port_action_returns_not_implemented():
-    result = server.port_action("device-1", "1", "reboot")
-    assert result["ok"] is False
-    assert "not yet implemented in firmware" in result["error"]
 
 
 # ---------------------------------------------------------------------------

@@ -47,7 +47,7 @@ Set environment variables before starting the server, or put them in a `.env` fi
 | `SLC_{KEY}_USERNAME` |, | Per-device username |
 | `SLC_{KEY}_PASSWORD` |, | Per-device password |
 | `SLC_{KEY}_TOTP_SECRET` |, | Per-device TOTP secret |
-| `SLC_VERIFY_SSL` | `true` | Set to `false` for self-signed certs (lab use only) |
+| `SLC_VERIFY_SSL` | `true` | Set to `false` only for lab devices with self-signed certificates. Never disable in production. |
 | `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion` |
 
 **Key derivation example:** device_id `slc9000-dc-a` becomes key `SLC9000_DC_A`, so the IP var is `SLC_SLC9000_DC_A_IP`.
@@ -137,7 +137,6 @@ When both servers are configured, route CLI commands that need output through sl
 | `get_managed_devices(device_id)` | Inventory of managed devices |
 | `get_managed_device(device_id, managed_device_id)` | Single managed device status |
 | `get_cellular_status(device_id)` | Cellular modem status (firmware_revision, signal_strength, imei, iccid, model, band, apn, state) |
-| `port_action(device_id, port_id, action)` | Not yet implemented in firmware |
 
 ### Firmware
 
@@ -155,7 +154,6 @@ When both servers are configured, route CLI commands that need output through sl
 
 | Tool | Description |
 |---|---|
-| `compare_config(device_id)` | Compare running vs. saved config (not yet implemented in firmware) |
 | `save_config(device_id, confirm=True)` | Save running config to non-volatile storage |
 | `export_config_commands(device_id)` | Export config as replayable CLI commands |
 | `apply_config_commands(device_id, commands, confirm=True)` | Apply CLI config commands, returns output |
@@ -197,7 +195,7 @@ Configure both servers together for full device + fleet coverage:
       "command": "python3",
       "args": ["/path/to/percepxion-MCP-Server/server.py"],
       "env": {
-        "PERCEPXION_URL": "https://api.percepxion.ai",
+        "PERCEPXION_API_URL": "https://api.percepxion.ai/api",
         "PERCEPXION_USERNAME": "user@example.com",
         "PERCEPXION_PASSWORD": "yourpassword"
       }
@@ -213,4 +211,4 @@ cd /path/to/slc-mcp-server
 python3 -m pytest tests/ -v
 ```
 
-The test suite covers all 35 tools including confirm guards, 2FA challenge flows, error body parsing, and new HTTP methods (PUT, DELETE, PATCH). No live device is required; tests use mocked HTTP responses.
+The test suite covers all 33 tools including confirm guards, 2FA challenge flows, error body parsing, and new HTTP methods (PUT, DELETE, PATCH). No live device is required; tests use mocked HTTP responses.

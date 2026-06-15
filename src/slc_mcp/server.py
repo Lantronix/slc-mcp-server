@@ -228,18 +228,6 @@ def get_managed_device(device_id: str, managed_device_id: str) -> dict:
     return _call_get(device_id, f"/managed_devices/{managed_device_id}/status")
 
 
-@mcp.tool()
-def port_action(device_id: str, port_id: str, action: str) -> dict:
-    """Send an action to a serial port or connected managed device.
-
-    This endpoint exists in the API specification but is not yet implemented in firmware.
-    """
-    return {
-        "ok": False,
-        "error": "port_action endpoint exists in the API specification but is not yet implemented in firmware.",
-    }
-
-
 # ---------------------------------------------------------------------------
 # Cellular
 # ---------------------------------------------------------------------------
@@ -316,16 +304,6 @@ def get_firmware_log(device_id: str) -> dict:
 # ---------------------------------------------------------------------------
 # Config Management
 # ---------------------------------------------------------------------------
-
-@mcp.tool()
-def compare_config(device_id: str) -> dict:
-    """Compare running config against saved config on an SLC device.
-
-    This endpoint exists in the API specification but is not yet implemented in firmware.
-    The device will return an error response.
-    """
-    return _call_get(device_id, "/config/compare")
-
 
 @mcp.tool()
 def save_config(device_id: str, confirm: bool = False) -> dict:
