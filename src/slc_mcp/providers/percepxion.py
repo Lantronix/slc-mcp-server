@@ -18,4 +18,5 @@ class PercepxionCredentialProvider(CredentialProvider):
                 f"Missing SLC_{key}_USERNAME/PASSWORD or SLC_USERNAME/PASSWORD "
                 f"for Percepxion provider"
             )
-        return {"ip": ip, "username": username, "password": password}
+        totp_secret = os.getenv(f"SLC_{key}_TOTP_SECRET") or os.getenv("SLC_TOTP_SECRET") or None
+        return {"ip": ip, "username": username, "password": password, "totp_secret": totp_secret}

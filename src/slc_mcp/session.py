@@ -21,7 +21,7 @@ class SessionManager:
             return session
         creds = self._provider.get_credentials(device_id)
         from slc_mcp import client
-        token = client.login(creds["ip"], creds["username"], creds["password"])
+        token = client.login(creds["ip"], creds["username"], creds["password"], totp_secret=creds.get("totp_secret"))
         session = DeviceSession(ip=creds["ip"], token=token)
         self._sessions[device_id] = session
         return session

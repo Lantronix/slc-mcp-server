@@ -1,6 +1,6 @@
 import pytest
 import responses as resp_lib
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from dataclasses import dataclass
 
 import slc_mcp.client as client
@@ -63,6 +63,75 @@ def test_login_failure_raises():
 
 
 @resp_lib.activate
+def test_login_2fa_totp_success():
+    """Challenge returned with totp_secret provided -> second POST -> token extracted."""
+    resp_lib.add(
+        resp_lib.POST,
+        "https://10.0.0.1/api/v2/user/login",
+        json={
+            "challenge_required": True,
+            "challenge_type": "tokencode",
+            "challenge_id": "chall-123",
+            "challenge_state": "pending",
+        },
+        status=200,
+    )
+    resp_lib.add(
+        resp_lib.POST,
+        "https://10.0.0.1/api/v2/user/login",
+        json={"token": "tok-2fa", "expires_in": 3600},
+        status=200,
+    )
+    mock_totp = MagicMock()
+    mock_totp.now.return_value = "123456"
+    with patch.object(client, "_VERIFY_SSL", False):
+        with patch.object(client, "pyotp") as mock_pyotp_mod:
+            mock_pyotp_mod.TOTP.return_value = mock_totp
+            token = client.login("10.0.0.1", "admin", "password", totp_secret="JBSWY3DPEHPK3PXP")
+    assert token == "tok-2fa"
+
+
+@resp_lib.activate
+def test_login_2fa_no_totp_secret_raises():
+    """Challenge returned but no totp_secret -> CredentialError with env var instruction."""
+    resp_lib.add(
+        resp_lib.POST,
+        "https://10.0.0.1/api/v2/user/login",
+        json={
+            "challenge_required": True,
+            "challenge_type": "passcode",
+            "challenge_id": "chall-456",
+            "challenge_state": "pending",
+        },
+        status=200,
+    )
+    from slc_mcp.providers import CredentialError
+    with patch.object(client, "_VERIFY_SSL", False):
+        with pytest.raises(CredentialError, match="TOTP_SECRET"):
+            client.login("10.0.0.1", "admin", "password", totp_secret=None)
+
+
+@resp_lib.activate
+def test_login_2fa_pin_setup_challenge_raises():
+    """PIN setup challenge type -> CredentialError with web UI instruction."""
+    resp_lib.add(
+        resp_lib.POST,
+        "https://10.0.0.1/api/v2/user/login",
+        json={
+            "challenge_required": True,
+            "challenge_type": "pin_setup",
+            "challenge_id": "chall-789",
+            "challenge_state": "setup",
+        },
+        status=200,
+    )
+    from slc_mcp.providers import CredentialError
+    with patch.object(client, "_VERIFY_SSL", False):
+        with pytest.raises(CredentialError, match="web UI"):
+            client.login("10.0.0.1", "admin", "password", totp_secret="JBSWY3DPEHPK3PXP")
+
+
+@resp_lib.activate
 def test_get_success():
     resp_lib.add(
         resp_lib.GET,
@@ -92,6 +161,22 @@ def test_get_401_returns_err():
 
 
 @resp_lib.activate
+def test_get_error_body_parsed():
+    """Non-2xx responses parse error field from response body."""
+    resp_lib.add(
+        resp_lib.GET,
+        "https://10.0.0.1/api/v2/firmware/check",
+        json={"error": "INVALID_URI", "message": "Not found"},
+        status=404,
+    )
+    with patch.object(client, "_VERIFY_SSL", False):
+        result = client.get(FakeSession(), "/firmware/check")
+    assert result["ok"] is False
+    assert result["status_code"] == 404
+    assert result["error"] == "INVALID_URI"
+
+
+@resp_lib.activate
 def test_post_success():
     resp_lib.add(
         resp_lib.POST,
@@ -103,6 +188,48 @@ def test_post_success():
         result = client.post(FakeSession(), "/config/save", {})
     assert result["ok"] is True
     assert result["data"]["code"] == "SUCCESS"
+
+
+@resp_lib.activate
+def test_put_success():
+    resp_lib.add(
+        resp_lib.PUT,
+        "https://10.0.0.1/api/v2/firmware/bootbank",
+        json={"bank": 2},
+        status=200,
+    )
+    with patch.object(client, "_VERIFY_SSL", False):
+        result = client.put(FakeSession(), "/firmware/bootbank", {"bank": 2})
+    assert result["ok"] is True
+    assert result["data"]["bank"] == 2
+
+
+@resp_lib.activate
+def test_delete_204_returns_ok():
+    resp_lib.add(
+        resp_lib.DELETE,
+        "https://10.0.0.1/api/v2/user/login",
+        body="",
+        status=204,
+    )
+    with patch.object(client, "_VERIFY_SSL", False):
+        result = client.delete(FakeSession(), "/user/login")
+    assert result["ok"] is True
+    assert result["data"] == {}
+
+
+@resp_lib.activate
+def test_patch_success():
+    resp_lib.add(
+        resp_lib.PATCH,
+        "https://10.0.0.1/api/v2/users/sysadmin",
+        json={"username": "sysadmin", "allow_dialback": True},
+        status=200,
+    )
+    with patch.object(client, "_VERIFY_SSL", False):
+        result = client.patch(FakeSession(), "/users/sysadmin", {"allow_dialback": True})
+    assert result["ok"] is True
+    assert result["data"]["allow_dialback"] is True
 
 
 def test_get_connection_refused():

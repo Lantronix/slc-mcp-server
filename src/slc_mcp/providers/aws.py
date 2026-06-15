@@ -31,4 +31,9 @@ class AWSCredentialProvider(CredentialProvider):
                 raise CredentialError(
                     f"AWS secret {secret_name} missing field: {field!r}"
                 )
-        return {"ip": data["ip"], "username": data["username"], "password": data["password"]}
+        return {
+            "ip": data["ip"],
+            "username": data["username"],
+            "password": data["password"],
+            "totp_secret": data.get("totp_secret") or None,
+        }

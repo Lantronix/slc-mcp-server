@@ -19,7 +19,10 @@ def test_per_device_env_vars():
     }
     with patch.dict(os.environ, env, clear=False):
         creds = EnvCredentialProvider().get_credentials("slc9000-dc-a")
-    assert creds == {"ip": "10.0.0.1", "username": "admin", "password": "secret"}
+    assert creds["ip"] == "10.0.0.1"
+    assert creds["username"] == "admin"
+    assert creds["password"] == "secret"
+    assert creds["totp_secret"] is None
 
 
 def test_global_fallback():

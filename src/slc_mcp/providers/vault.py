@@ -31,4 +31,9 @@ class VaultCredentialProvider(CredentialProvider):
                 raise CredentialError(
                     f"Vault secret secret/slc/{device_id} missing field: {field!r}"
                 )
-        return {"ip": data["ip"], "username": data["username"], "password": data["password"]}
+        return {
+            "ip": data["ip"],
+            "username": data["username"],
+            "password": data["password"],
+            "totp_secret": data.get("totp_secret") or None,
+        }

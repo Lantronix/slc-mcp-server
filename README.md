@@ -1,150 +1,216 @@
 # slc-mcp-server
 
-Model Context Protocol (MCP) server for Lantronix SLC console servers. Exposes the SLC REST API as MCP tools so AI assistants can query device status, inspect ports, check firmware, and manage configuration without direct API knowledge.
+An MCP (Model Context Protocol) server that exposes the Lantronix SLC9000 console server REST API as tools for AI agents. Agents can query port status, manage firmware, apply configuration, and control device sessions without touching the web UI or writing curl commands.
 
-Supports SLC9000, SLC8000, and EMG series devices.
+This server handles device-level operations against individual SLC9000 units. It's designed to work alongside [percepxion-mcp-server](https://github.com/keelhaulin/percepxion-MCP-Server), which handles fleet-level operations through the Percepxion cloud platform. There's no capability overlap by design: when both servers are configured, the agent routes device-specific calls here and fleet-wide calls to Percepxion.
 
-## Tools
+## Capability Split
 
-| Tool | Description |
-|---|---|
-| `get_system_status` | System status and health |
-| `get_system_version` | Firmware and software version |
-| `get_network_interfaces` | Network interface configurations and status |
-| `get_ztp_status` | Zero Touch Provisioning status |
-| `get_slc_ports` | All serial port configurations |
-| `get_slc_port` | Single port status by port number |
-| `get_connections` | Active connections |
-| `get_managed_devices` | Managed device inventory |
-| `get_managed_device` | Single managed device status |
-| `get_cellular_status` | Cellular modem status |
-| `get_firmware_version` | Installed firmware version |
-| `get_firmware_update_status` | Firmware update progress |
-| `check_firmware_updates` | Trigger firmware update check |
-| `compare_config` | Diff running config vs. saved config |
-| `save_config` | Save running config (requires `confirm=True`) |
-| `configure_provider` | Switch credential provider at runtime |
+| Capability | slc-mcp-server | percepxion-mcp-server |
+|---|---|---|
+| Serial port status/config | `get_slc_port`, `get_slc_ports` | `list_device_ports` |
+| CLI commands with output | `apply_config_commands` |, (job status only) |
+| CLI commands (fire and forget) |, | `send_direct_cli_command` |
+| Firmware update | `firmware_update`, `get_firmware_update_status` | `update_firmware_by_smart_group` |
+| Device config backup | `export_config_commands` | `get_device_config` |
+| User/session management | `get_sessions`, `terminate_session` |, |
+| Reboot | `reboot_device` | `reboot_device` (fleet) |
+| Cellular status | `get_cellular_status` |, |
+| Fleet-wide ops |, | smart groups, templates |
+| Audit logs |, | `investigate_audit_logs` |
 
-## Install
+## Prerequisites
+
+- Python 3.11+
+- Network access to the SLC9000 device (direct IP or via jump host)
+- Credentials for the device sysadmin account
 
 ```bash
-git clone https://github.com/keelhaulin/slc-mcp-server
-cd slc-mcp-server
 pip install -e .
 ```
 
-Python 3.11+ required.
+This installs all dependencies including `pyotp`, which is required for 2FA-enabled devices.
+
+## Configuration
+
+Set environment variables before starting the server, or put them in a `.env` file in the project root.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `SLC_DEFAULT_IP` |, | Default device IP, used when device_id isn't in the registry |
+| `SLC_USERNAME` | `sysadmin` | Default username |
+| `SLC_PASSWORD` |, | Default password |
+| `SLC_TOTP_SECRET` |, | Default TOTP secret for 2FA-enabled devices |
+| `SLC_{KEY}_IP` |, | Per-device IP where KEY is the device identifier (uppercased, non-alphanumeric replaced with `_`) |
+| `SLC_{KEY}_USERNAME` |, | Per-device username |
+| `SLC_{KEY}_PASSWORD` |, | Per-device password |
+| `SLC_{KEY}_TOTP_SECRET` |, | Per-device TOTP secret |
+| `SLC_VERIFY_SSL` | `true` | Set to `false` for self-signed certs (lab use only) |
+| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion` |
+
+**Key derivation example:** device_id `slc9000-dc-a` becomes key `SLC9000_DC_A`, so the IP var is `SLC_SLC9000_DC_A_IP`.
+
+### Minimal .env
+
+```bash
+SLC_DEFAULT_IP=192.168.100.76
+SLC_USERNAME=sysadmin
+SLC_PASSWORD=yourpassword
+SLC_VERIFY_SSL=false
+```
 
 ## Credential Providers
 
-The server supports four credential backends, selected by `SLC_CREDENTIAL_PROVIDER`.
+**env (default):** Reads credentials from environment variables as described above. Per-device vars take priority over globals. Good for single-device or small lab setups.
 
-### env (default)
+**vault:** Reads from HashiCorp Vault KV v2 at path `slc/{device_id}`. Requires `VAULT_ADDR` and `VAULT_TOKEN` env vars. The Vault secret must contain `ip`, `username`, `password`, and optionally `totp_secret`. Good for production deployments where secrets are already in Vault.
 
-Credentials are read from environment variables. Device IDs are uppercased with non-alphanumeric characters replaced by `_`.
+**aws:** Reads from AWS Secrets Manager at secret name `slc/{device_id}`. Requires standard AWS credential configuration (IAM role, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, or instance profile). Secret JSON must contain `ip`, `username`, `password`, and optionally `totp_secret`.
 
-```bash
-SLC_CREDENTIAL_PROVIDER=env
-SLC_SLC9000_IP=192.168.100.75
-SLC_SLC9000_USERNAME=admin
-SLC_SLC9000_PASSWORD=yourpassword
+**percepxion:** Looks up the device IP from the Percepxion device registry by device_id, using the Percepxion API v2. Requires `PERCEPXION_API_URL`, `PERCEPXION_USERNAME`, `PERCEPXION_PASSWORD`. Username and password for the SLC device itself still come from `SLC_{KEY}_*` env vars. Use this when your device inventory is managed in Percepxion and IPs change.
+
+Switch providers at runtime without restarting:
+
+```
+configure_provider("vault")
 ```
 
-Call tools with `device_id="slc9000"`. For a single-device setup, use the global fallback:
+## 2FA Support
+
+When a device has 2FA enabled with TOTP (time-based one-time passwords), the server handles the challenge-response flow automatically. The login endpoint returns a challenge, the server generates the current TOTP code, and submits it in a second request.
+
+To configure this, generate a TOTP secret on the device web UI and set the corresponding env var:
 
 ```bash
-SLC_DEFAULT_IP=192.168.100.75
-SLC_USERNAME=admin
-SLC_PASSWORD=yourpassword
+SLC_MYDEVICE_TOTP_SECRET=JBSWY3DPEHPK3PXP
 ```
 
-### percepxion
+The value is the base32 secret string, not a numeric code. PIN setup challenges (first-time 2FA activation where the device asks you to set a PIN) must be completed through the device web UI before the MCP server can authenticate. Only TOTP (`passcode`/`tokencode` challenge types) are handled automatically.
 
-Looks up device IP from Percepxion by hostname. Device IDs must match the hostname registered in Percepxion.
+## CLI Command Routing
 
-```bash
-SLC_CREDENTIAL_PROVIDER=percepxion
-PERCEPXION_API_URL=https://api.consoleflow.com
-PERCEPXION_USERNAME=admin@example.com
-PERCEPXION_PASSWORD=yourpassword
-```
+Two tools handle CLI commands and they behave differently. Pick the right one based on whether you need output.
 
-### vault
+`apply_config_commands` (this server, `POST /config/batch`) sends CLI configuration commands to the SLC device and returns synchronous output directly. Use this when you need to see what the command produced.
 
-Reads from HashiCorp Vault KV v2 at path `slc/{device_id}`. Expects fields `ip`, `username`, `password`.
+`send_direct_cli_command` (percepxion-mcp-server) dispatches CLI commands through Percepxion's async job system. Command execution happens on the device, but only job status comes back to the API caller, not CLI output. This is because Percepxion uses MQTT for the actual response channel. Use it for fire-and-forget fleet operations where confirmation that the job was dispatched is enough.
 
-```bash
-SLC_CREDENTIAL_PROVIDER=vault
-VAULT_ADDR=https://vault.example.com
-VAULT_TOKEN=hvs.yourtoken
-```
+When both servers are configured, route CLI commands that need output through slc-mcp-server.
 
-Requires `hvac`: `pip install hvac`
+## Tool Reference
 
-### aws
+### Auth & Sessions
 
-Reads from AWS Secrets Manager at `slc/{device_id}`. Uses the standard AWS credential chain (env vars, IAM role, `~/.aws/config`).
+| Tool | Description |
+|---|---|
+| `logout_device(device_id)` | Invalidate the current API session token |
+| `get_sessions(device_id)` | List all active sessions (web UI, API, WebTerm) |
+| `get_session(device_id, session_id)` | Get details for a specific session |
+| `terminate_session(device_id, session_id, confirm=True)` | Forcibly terminate a session |
 
-```bash
-SLC_CREDENTIAL_PROVIDER=aws
-AWS_DEFAULT_REGION=us-east-1
-```
+### System
 
-Requires `boto3`: `pip install boto3`
+| Tool | Description |
+|---|---|
+| `get_system_status(device_id)` | System status (uptime, state, etc.) |
+| `get_system_version(device_id)` | Firmware and software version |
+| `get_system_identity(device_id)` | Hostname, description, contact, location |
+| `update_system_identity(device_id, hostname, description, confirm=True)` | Update hostname or description |
+| `get_ztp_status(device_id)` | Zero Touch Provisioning status |
+| `reboot_device(device_id, confirm=True)` | Reboot the device |
 
-## Running
+### Network
 
-```bash
-python run_server.py
-```
+| Tool | Description |
+|---|---|
+| `get_network_interfaces(device_id)` | All interface configurations and status |
 
-## Claude Desktop Integration
+### Ports & Connections
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+| Tool | Description |
+|---|---|
+| `get_slc_ports(device_id)` | All serial port configurations and status |
+| `get_slc_port(device_id, port_id)` | Single port status (`port_id` is a string like `"1"`) |
+| `get_connections(device_id)` | All active connections |
+| `get_managed_devices(device_id)` | Inventory of managed devices |
+| `get_managed_device(device_id, managed_device_id)` | Single managed device status |
+| `get_cellular_status(device_id)` | Cellular modem status (firmware_revision, signal_strength, imei, iccid, model, band, apn, state) |
+| `port_action(device_id, port_id, action)` | Not yet implemented in firmware |
+
+### Firmware
+
+| Tool | Description |
+|---|---|
+| `get_firmware_version(device_id)` | Installed firmware version |
+| `get_firmware_update_status(device_id)` | Status of in-progress or completed update |
+| `check_firmware_updates(device_id)` | Check for available updates |
+| `get_firmware_bootbank(device_id)` | Active boot bank (1 or 2) |
+| `set_firmware_bootbank(device_id, bank, confirm=True)` | Set boot bank for next reboot |
+| `firmware_update(device_id, preserveconfig=True, confirm=True)` | Trigger firmware update |
+| `get_firmware_log(device_id)` | Log from the most recent update |
+
+### Config Management
+
+| Tool | Description |
+|---|---|
+| `compare_config(device_id)` | Compare running vs. saved config (not yet implemented in firmware) |
+| `save_config(device_id, confirm=True)` | Save running config to non-volatile storage |
+| `export_config_commands(device_id)` | Export config as replayable CLI commands |
+| `apply_config_commands(device_id, commands, confirm=True)` | Apply CLI config commands, returns output |
+| `restore_config_baseline(device_id, confirm=True)` | Restore saved baseline config |
+| `export_config_for_edit(device_id)` | Export full config blob for editing |
+| `factory_reset(device_id, confirm="FACTORY RESET")` | Reset to factory defaults (irreversible) |
+
+### Users
+
+| Tool | Description |
+|---|---|
+| `get_sysadmin_user(device_id)` | Sysadmin account configuration |
+| `update_sysadmin_user(device_id, new_password, allow_dialback, dialback_number, confirm=True)` | Update sysadmin settings |
+
+### Admin
+
+| Tool | Description |
+|---|---|
+| `configure_provider(provider)` | Switch credential provider (env, vault, aws, percepxion) |
+
+## Multi-Server Claude Desktop Config
+
+Configure both servers together for full device + fleet coverage:
 
 ```json
 {
   "mcpServers": {
     "slc-mcp-server": {
-      "command": "python",
+      "command": "python3",
       "args": ["/path/to/slc-mcp-server/run_server.py"],
       "env": {
-        "SLC_CREDENTIAL_PROVIDER": "env",
-        "SLC_VERIFY_SSL": "false",
-        "SLC_SLC9000_IP": "192.168.1.100",
-        "SLC_SLC9000_USERNAME": "admin",
-        "SLC_SLC9000_PASSWORD": "yourpassword"
+        "SLC_DEFAULT_IP": "192.168.100.76",
+        "SLC_USERNAME": "sysadmin",
+        "SLC_PASSWORD": "yourpassword",
+        "SLC_VERIFY_SSL": "false"
+      }
+    },
+    "percepxion-mcp-server": {
+      "command": "python3",
+      "args": ["/path/to/percepxion-MCP-Server/server.py"],
+      "env": {
+        "PERCEPXION_URL": "https://api.percepxion.ai",
+        "PERCEPXION_USERNAME": "user@example.com",
+        "PERCEPXION_PASSWORD": "yourpassword"
       }
     }
   }
 }
 ```
 
-For WSL on Windows, see `config/claude_desktop_config.wsl_windows.example.json`.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `percepxion`, `vault`, `aws` |
-| `SLC_VERIFY_SSL` | `false` | Set `true` for CA-signed certs; `false` for self-signed (default for SLC devices) |
-| `SLC_REQUEST_TIMEOUT` | `30` | HTTP request timeout in seconds |
-| `SLC_API_PATH_PREFIX` | `/api/v2` | API base path |
-
-Copy `.env.example` to `.env` for a full reference.
-
 ## Testing
 
 ```bash
-pip install -e ".[dev]"
-python -m pytest tests/ -v
+cd /path/to/slc-mcp-server
+python3 -m pytest tests/ -v
 ```
 
-52 tests covering providers, HTTP client, session management, tool dispatch, and integration against a fake device server.
-
-## Security Notes
-
-- Credentials are never logged. Tokens live only in process memory.
-- `save_config` requires `confirm=True` to prevent accidental writes.
-- Sessions are automatically invalidated and re-authenticated on 401.
-- SSL verification is off by default because SLC devices ship with self-signed certificates. Set `SLC_VERIFY_SSL=true` if your devices have CA-signed certs.
+The test suite covers all 35 tools including confirm guards, 2FA challenge flows, error body parsing, and new HTTP methods (PUT, DELETE, PATCH). No live device is required; tests use mocked HTTP responses.

@@ -32,7 +32,10 @@ def test_aws_returns_credentials():
     mock_botocore_exc.ClientError = Exception
     with patch.dict("sys.modules", {"boto3": mock_boto3, "botocore": MagicMock(), "botocore.exceptions": mock_botocore_exc}):
         creds = AWSCredentialProvider().get_credentials("slc9000-dc-b")
-    assert creds == {"ip": "10.2.2.2", "username": "admin", "password": "awspass"}
+    assert creds["ip"] == "10.2.2.2"
+    assert creds["username"] == "admin"
+    assert creds["password"] == "awspass"
+    assert creds["totp_secret"] is None
     mock_client.get_secret_value.assert_called_once_with(SecretId="slc/slc9000-dc-b")
 
 

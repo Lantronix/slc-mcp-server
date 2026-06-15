@@ -39,7 +39,10 @@ def test_vault_returns_credentials():
     with patch.dict(os.environ, env, clear=False):
         with patch.dict("sys.modules", {"hvac": mock_hvac}):
             creds = VaultCredentialProvider().get_credentials("slc9000-dc-a")
-    assert creds == {"ip": "10.1.1.1", "username": "admin", "password": "vaultpass"}
+    assert creds["ip"] == "10.1.1.1"
+    assert creds["username"] == "admin"
+    assert creds["password"] == "vaultpass"
+    assert creds["totp_secret"] is None
     mock_client.secrets.kv.v2.read_secret_version.assert_called_once_with(path="slc/slc9000-dc-a")
 
 

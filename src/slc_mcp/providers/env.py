@@ -27,4 +27,5 @@ class EnvCredentialProvider(CredentialProvider):
             raise CredentialError(
                 f"Missing env vars for {device_id!r}: {', '.join(missing)}"
             )
-        return {"ip": ip, "username": username, "password": password}
+        totp_secret = os.getenv(f"SLC_{key}_TOTP_SECRET") or os.getenv("SLC_TOTP_SECRET") or None
+        return {"ip": ip, "username": username, "password": password, "totp_secret": totp_secret}

@@ -14,6 +14,7 @@ def test_percepxion_provider_builds_creds():
             creds = PercepxionCredentialProvider().get_credentials("dc-slc-01")
     assert creds["ip"] == "10.5.0.10"
     assert creds["username"] == "admin"
+    assert "totp_secret" in creds
     mock_registry.get_device_ip.assert_called_once_with("dc-slc-01")
 
 

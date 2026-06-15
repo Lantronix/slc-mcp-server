@@ -21,7 +21,7 @@ class PercepxionRegistry:
                 "Percepxion provider requires PERCEPXION_API_URL, PERCEPXION_USERNAME, PERCEPXION_PASSWORD"
             )
         r = requests.post(
-            f"{self._base_url}/v1/user/login",
+            f"{self._base_url}/v2/user/login",
             json={"username": username, "password": password},
             timeout=30,
         )

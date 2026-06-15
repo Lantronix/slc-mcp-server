@@ -3,3 +3,4 @@ requests
 python-dotenv
 hvac
 boto3
+pyotp>=2.9.0

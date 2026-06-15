@@ -8,7 +8,7 @@ def _make_manager(ip="10.0.0.1"):
     mgr = SessionManager.__new__(SessionManager)
     mgr._sessions = {}
     provider = MagicMock()
-    provider.get_credentials.return_value = {"ip": ip, "username": "admin", "password": "pw"}
+    provider.get_credentials.return_value = {"ip": ip, "username": "admin", "password": "pw", "totp_secret": None}
     mgr._provider = provider
     return mgr, provider
 
@@ -19,7 +19,7 @@ def test_cache_miss_authenticates():
         session = mgr.get_or_create("device-1")
     assert session.token == "newtok"
     assert session.ip == "10.0.0.1"
-    mock_login.assert_called_once_with("10.0.0.1", "admin", "pw")
+    mock_login.assert_called_once_with("10.0.0.1", "admin", "pw", totp_secret=None)
 
 
 def test_cache_hit_skips_login():
@@ -66,3 +66,21 @@ def test_set_provider_clears_sessions():
     mgr.set_provider(new_provider)
     assert len(mgr._sessions) == 0
     assert mgr._provider is new_provider
+
+
+def test_totp_secret_passed_to_login():
+    """When creds include a totp_secret, it's forwarded to client.login."""
+    from slc_mcp.session import SessionManager
+    mgr = SessionManager.__new__(SessionManager)
+    mgr._sessions = {}
+    provider = MagicMock()
+    provider.get_credentials.return_value = {
+        "ip": "10.0.0.1",
+        "username": "admin",
+        "password": "pw",
+        "totp_secret": "JBSWY3DPEHPK3PXP",
+    }
+    mgr._provider = provider
+    with patch("slc_mcp.client.login", return_value="tok") as mock_login:
+        mgr.get_or_create("device-1")
+    mock_login.assert_called_once_with("10.0.0.1", "admin", "pw", totp_secret="JBSWY3DPEHPK3PXP")
