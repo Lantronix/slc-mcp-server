@@ -58,7 +58,7 @@ def test_login_failure_raises():
     )
     from slc_mcp.providers import CredentialError
     with patch.object(client, "_VERIFY_SSL", False):
-        with pytest.raises(CredentialError, match="Login failed"):
+        with pytest.raises(CredentialError, match="Authentication failed"):
             client.login("10.0.0.1", "admin", "wrong")
 
 
@@ -157,7 +157,7 @@ def test_get_401_returns_err():
         result = client.get(FakeSession(), "/system/status")
     assert result["ok"] is False
     assert result["status_code"] == 401
-    assert "re-authenticate" in result["error"]
+    assert "401" in result["error"]
 
 
 @resp_lib.activate

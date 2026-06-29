@@ -23,7 +23,7 @@ This server handles device-level operations against individual SLC9000 units. It
 
 - Python 3.11+
 - Network access to the SLC9000 device (direct IP or via jump host)
-- Credentials for the device sysadmin account
+- Device credentials with permissions appropriate for the operations requested. The SLC's built-in authentication and role system applies: read-only accounts can use read-only tools, and the server returns informative errors when credentials are invalid or lack the permissions needed for a given operation.
 
 ```bash
 pip install -e .
@@ -60,6 +60,53 @@ SLC_USERNAME=sysadmin
 SLC_PASSWORD=yourpassword
 SLC_VERIFY_SSL=false
 ```
+
+## Docker
+
+Build and run the server in a container. All configuration passes via environment variables or a `.env` file.
+
+**Build:**
+
+```bash
+docker build -t slc-mcp-server .
+```
+
+**Run with a `.env` file:**
+
+```bash
+docker run --rm --env-file .env slc-mcp-server
+```
+
+**Run with individual env vars (single device, lab):**
+
+```bash
+docker run --rm \
+  -e SLC_DEFAULT_IP=192.168.100.76 \
+  -e SLC_USERNAME=sysadmin \
+  -e SLC_PASSWORD=yourpassword \
+  -e SLC_VERIFY_SSL=false \
+  slc-mcp-server
+```
+
+For production deployments with HashiCorp Vault or CyberArk, pass the relevant env vars instead of embedding credentials in the image. The Dockerfile uses a non-root user by default.
+
+## CLI Policy
+
+The server enforces a CLI policy layer on top of the SLC device's own permission system. By default, `apply_config_commands` and the Percepxion client write tools (`start_px_client`, `stop_px_client`, `restart_px_client`) reject write commands unless explicitly enabled.
+
+| Variable | Default | Description |
+|---|---|---|
+| `SLC_CLI_WRITE_ENABLED` | `false` | Allow write commands via `apply_config_commands` and px client tools |
+| `SLC_CLI_YOLO` | `false` | Disable all CLI policy filtering. Never use in production. |
+| `SLC_CLI_MAX_LENGTH` | `512` | Maximum command length in characters |
+| `SLC_CLI_DENY_COMMANDS` | built-in list | Comma-separated additional commands to block |
+| `SLC_CLI_PERMIT_COMMANDS` | unset | Comma-separated allowlist, if set, only these prefixes are permitted |
+
+**Built-in deny list** (always blocked unless `SLC_CLI_YOLO=true`): `factory-reset`, `write erase`, `erase startup-config`, `erase flash`, `reload`, `reboot`, `format`, `shutdown`, `power off`, `reset system`, `init 0`, `halt`.
+
+Read-only commands (`show`, `diag`, `ping`, `traceroute`, etc.) are always permitted regardless of `SLC_CLI_WRITE_ENABLED`. The `get_px_status` tool is always permitted.
+
+This policy layer sits in addition to the SLC device's own user role restrictions. A command that passes the MCP policy layer can still be rejected by the device if the configured account lacks the required role.
 
 ## Credential Providers
 
@@ -158,7 +205,7 @@ When both servers are configured, route CLI commands that need output through sl
 |---|---|
 | `save_config(device_id, confirm=True)` | Save running config to non-volatile storage |
 | `export_config_commands(device_id)` | Export config as replayable CLI commands |
-| `apply_config_commands(device_id, commands, confirm=True)` | Apply CLI config commands, returns output |
+| `apply_config_commands(device_id, commands, confirm=True)` | Apply CLI config commands, returns output. Read-only by default (`SLC_CLI_WRITE_ENABLED=false`). |
 | `restore_config_baseline(device_id, confirm=True)` | Restore saved baseline config |
 | `export_config_for_edit(device_id)` | Export full config blob for editing |
 | `factory_reset(device_id, confirm="FACTORY RESET")` | Reset to factory defaults (irreversible) |
@@ -169,6 +216,17 @@ When both servers are configured, route CLI commands that need output through sl
 |---|---|
 | `get_sysadmin_user(device_id)` | Sysadmin account configuration |
 | `update_sysadmin_user(device_id, new_password, allow_dialback, dialback_number, confirm=True)` | Update sysadmin settings |
+
+### Percepxion Client
+
+Tools for managing the Percepxion cloud client running on the SLC device. Status is always readable; start/stop/restart require `SLC_CLI_WRITE_ENABLED=true`.
+
+| Tool | Description |
+|---|---|
+| `get_px_status(device_id)` | Percepxion client status: enable state, connection, server URL, last heartbeat |
+| `start_px_client(device_id, confirm=True)` | Enable the Percepxion client (registers with cloud in ~30s) |
+| `stop_px_client(device_id, confirm=True)` | Disable the Percepxion client (shutdown takes 60-120s) |
+| `restart_px_client(device_id, confirm=True, timeout_seconds=120)` | Disable, wait for stopped state, then enable |
 
 ### Admin
 

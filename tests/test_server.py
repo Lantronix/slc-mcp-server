@@ -71,7 +71,7 @@ def test_tool_count():
         capture_output=True, text=True,
         cwd="/mnt/c/Users/rhogg/Projects/git/slc-mcp-server",
     )
-    assert int(result.stdout.strip()) == 33
+    assert int(result.stdout.strip()) == 37
 
 
 # ---------------------------------------------------------------------------
@@ -124,11 +124,26 @@ def test_apply_config_commands_requires_confirm():
 
 
 def test_apply_config_commands_passes_commands_list():
-    cmds = ["set hostname foo", "set description bar"]
+    cmds = ["show hostname", "show system status"]
     with patch.object(server, "_call_post", return_value={"ok": True, "data": {"status": "ok"}}) as mock_post:
         result = server.apply_config_commands("device-1", cmds, confirm=True)
     assert result["ok"] is True
-    mock_post.assert_called_once_with("device-1", "/config/batch", {"commands": cmds})
+    mock_post.assert_called_once_with("device-1", "/config/batch", {"commands": "show hostname\nshow system status"})
+
+
+def test_apply_config_commands_write_blocked_by_default():
+    result = server.apply_config_commands("device-1", ["set hostname foo"], confirm=True)
+    assert result["ok"] is False
+    assert "SLC_CLI_WRITE_ENABLED" in result["error"]
+
+
+def test_apply_config_commands_write_allowed_when_enabled():
+    cmds = ["set hostname foo"]
+    with patch.dict("os.environ", {"SLC_CLI_WRITE_ENABLED": "true"}):
+        with patch.object(server, "_call_post", return_value={"ok": True, "data": {}}) as mock_post:
+            result = server.apply_config_commands("device-1", cmds, confirm=True)
+    assert result["ok"] is True
+    mock_post.assert_called_once_with("device-1", "/config/batch", {"commands": "set hostname foo"})
 
 
 # ---------------------------------------------------------------------------

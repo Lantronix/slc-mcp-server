@@ -190,7 +190,8 @@ def test_export_config_commands(fake_slc):
 
 def test_apply_config_commands_with_confirm(fake_slc):
     with _fake_device_ctx(fake_slc):
-        result = server.apply_config_commands("testdev", ["set hostname slc9000"], confirm=True)
+        with patch.dict("os.environ", {"SLC_CLI_WRITE_ENABLED": "true"}):
+            result = server.apply_config_commands("testdev", ["set hostname slc9000"], confirm=True)
     assert result["ok"] is True
 
 

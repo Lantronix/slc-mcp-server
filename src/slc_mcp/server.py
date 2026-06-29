@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -15,11 +16,22 @@ log = logging.getLogger(__name__)
 
 mcp = FastMCP("slc-mcp-server")
 
-from slc_mcp import client
+from slc_mcp import cli_policy, client
+from slc_mcp.cli_policy import CLIPolicyViolation
 from slc_mcp.providers import CredentialError, get_provider
 from slc_mcp.session import SessionManager
 
 _sessions = SessionManager()
+
+
+def _check_cli_write(tool_name: str) -> dict | None:
+    """Return an error dict if CLI write access is disabled, else return None."""
+    if not cli_policy.cli_write_enabled():
+        return client._err(
+            f"{tool_name} sends write commands to the device. "
+            "Set SLC_CLI_WRITE_ENABLED=true on the server to enable this tool."
+        )
+    return None
 
 
 def _call_get(device_id: str, path: str) -> dict:
@@ -328,17 +340,25 @@ def export_config_commands(device_id: str) -> dict:
 
 @mcp.tool()
 def apply_config_commands(device_id: str, commands: list[str], confirm: bool = False) -> dict:
-    """Apply a list of CLI configuration commands to the device. Requires confirm=True.
+    """Apply a list of CLI commands to the device and return their output. Requires confirm=True.
 
     Commands execute synchronously and return output directly. Use this tool (not
     Percepxion's send_direct_cli_command) when you need to see command output.
-    Percepxion CLI commands return only job status via its async job system, not CLI output.
+    Percepxion CLI commands return only job status via its async MQTT system, not CLI output.
 
-    Example: apply_config_commands(device_id, ["set hostname slc9000-lab"])
+    Read-only commands (show, diag ping, etc.) are always permitted.
+    Write commands require SLC_CLI_WRITE_ENABLED=true on the server.
+
+    Example: apply_config_commands(device_id, ["show px status"])
     """
     if not confirm:
         return {"ok": False, "error": "Set confirm=True to apply configuration commands."}
-    return _call_post(device_id, "/config/batch", {"commands": commands})
+    for cmd in commands:
+        try:
+            cli_policy.check_command(cmd)
+        except CLIPolicyViolation as exc:
+            return client._err(str(exc))
+    return _call_post(device_id, "/config/batch", {"commands": "\n".join(commands)})
 
 
 @mcp.tool()
@@ -407,3 +427,89 @@ def update_sysadmin_user(
     if dialback_number is not None:
         body["dialback_number"] = dialback_number
     return _call_patch(device_id, "/users/sysadmin", body)
+
+
+# ---------------------------------------------------------------------------
+# Percepxion Client
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_px_status(device_id: str) -> dict:
+    """Get Percepxion client status on the device.
+
+    Returns client enable state, connection status, server URL, and last heartbeat.
+    This is always allowed regardless of SLC_CLI_WRITE_ENABLED.
+    """
+    return _call_post(device_id, "/config/batch", {"commands": "show px status"})
+
+
+@mcp.tool()
+def start_px_client(device_id: str, confirm: bool = False) -> dict:
+    """Enable the Percepxion client. Requires confirm=True and SLC_CLI_WRITE_ENABLED=true.
+
+    The client registers with the Percepxion cloud within ~30 seconds of starting.
+    Use get_px_status to verify the connection.
+    """
+    if not confirm:
+        return {"ok": False, "error": "Set confirm=True to start the Percepxion client."}
+    guard = _check_cli_write("start_px_client")
+    if guard:
+        return guard
+    return _call_post(device_id, "/config/batch", {"commands": "set px client enable"})
+
+
+@mcp.tool()
+def stop_px_client(device_id: str, confirm: bool = False) -> dict:
+    """Disable the Percepxion client. Requires confirm=True and SLC_CLI_WRITE_ENABLED=true.
+
+    The client disconnects from Percepxion cloud. Shutdown takes 60-120 seconds.
+    Use get_px_status to verify the client has stopped.
+    """
+    if not confirm:
+        return {"ok": False, "error": "Set confirm=True to stop the Percepxion client."}
+    guard = _check_cli_write("stop_px_client")
+    if guard:
+        return guard
+    return _call_post(device_id, "/config/batch", {"commands": "set px client disable"})
+
+
+@mcp.tool()
+def restart_px_client(
+    device_id: str,
+    confirm: bool = False,
+    timeout_seconds: int = 120,
+) -> dict:
+    """Restart the Percepxion client. Requires confirm=True and SLC_CLI_WRITE_ENABLED=true.
+
+    Sends disable, polls until the client reaches 'not running' state (up to timeout_seconds),
+    then sends enable. Shutdown takes 60-120 seconds in practice; the default timeout is 120s.
+    Returns an error if the client does not stop within timeout_seconds.
+    """
+    if not confirm:
+        return {"ok": False, "error": "Set confirm=True to restart the Percepxion client."}
+    guard = _check_cli_write("restart_px_client")
+    if guard:
+        return guard
+
+    disable_result = _call_post(device_id, "/config/batch", {"commands": "set px client disable"})
+    if not disable_result["ok"]:
+        return disable_result
+
+    elapsed = 0
+    while elapsed < timeout_seconds:
+        time.sleep(5)
+        elapsed += 5
+        status = _call_post(device_id, "/config/batch", {"commands": "show px status"})
+        if not status["ok"]:
+            return status
+        messages = status.get("data", {}).get("message", [])
+        output = "\n".join(messages) if isinstance(messages, list) else str(messages)
+        if "Status of Client: not running" in output:
+            break
+    else:
+        return client._err(
+            f"Timeout: Percepxion client did not stop within {timeout_seconds}s. "
+            "Try stop_px_client first and wait before calling restart_px_client again."
+        )
+
+    return _call_post(device_id, "/config/batch", {"commands": "set px client enable"})

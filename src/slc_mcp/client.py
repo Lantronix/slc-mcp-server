@@ -67,6 +67,16 @@ def login(ip: str, username: str, password: str, totp_secret: str | None = None)
         raise CredentialError(f"Connection timed out to {ip}")
 
     if not r.ok:
+        if r.status_code == 401:
+            raise CredentialError(f"Authentication failed for {ip}: invalid username or password.")
+        if r.status_code == 403:
+            raise CredentialError(
+                f"Access denied for {ip}: account may be locked or have insufficient permissions."
+            )
+        if r.status_code == 503:
+            raise CredentialError(
+                f"Authentication service unavailable on {ip}: device may still be starting up."
+            )
         raise CredentialError(f"Login failed for {ip}: HTTP {r.status_code}")
 
     data = r.json()
@@ -129,7 +139,17 @@ def get(session, path: str) -> dict:
     except requests.exceptions.Timeout:
         return _err(f"Connection timed out to {session.ip}")
     if r.status_code == 401:
-        return _err("Session expired, retry to re-authenticate.", 401)
+        return _err(
+            "Authentication failed (HTTP 401). Credentials may be invalid or the session expired. "
+            "Check the credential provider configuration.",
+            401,
+        )
+    if r.status_code == 403:
+        return _err(
+            f"Access denied (HTTP 403). The credentials used do not have sufficient permissions "
+            f"for this operation on {session.ip}. Check the user role configuration on the device.",
+            403,
+        )
     if not r.ok:
         return _err(_extract_error_message(r), r.status_code)
     return _ok(r.json())
@@ -152,7 +172,17 @@ def post(session, path: str, body: dict | None = None) -> dict:
     except requests.exceptions.Timeout:
         return _err(f"Connection timed out to {session.ip}")
     if r.status_code == 401:
-        return _err("Session expired, retry to re-authenticate.", 401)
+        return _err(
+            "Authentication failed (HTTP 401). Credentials may be invalid or the session expired. "
+            "Check the credential provider configuration.",
+            401,
+        )
+    if r.status_code == 403:
+        return _err(
+            f"Access denied (HTTP 403). The credentials used do not have sufficient permissions "
+            f"for this operation on {session.ip}. Check the user role configuration on the device.",
+            403,
+        )
     if not r.ok:
         return _err(_extract_error_message(r), r.status_code)
     return _ok(r.json())
@@ -175,7 +205,17 @@ def put(session, path: str, body: dict | None = None) -> dict:
     except requests.exceptions.Timeout:
         return _err(f"Connection timed out to {session.ip}")
     if r.status_code == 401:
-        return _err("Session expired, retry to re-authenticate.", 401)
+        return _err(
+            "Authentication failed (HTTP 401). Credentials may be invalid or the session expired. "
+            "Check the credential provider configuration.",
+            401,
+        )
+    if r.status_code == 403:
+        return _err(
+            f"Access denied (HTTP 403). The credentials used do not have sufficient permissions "
+            f"for this operation on {session.ip}. Check the user role configuration on the device.",
+            403,
+        )
     if not r.ok:
         return _err(_extract_error_message(r), r.status_code)
     return _ok(r.json())
@@ -194,7 +234,17 @@ def delete(session, path: str) -> dict:
     except requests.exceptions.Timeout:
         return _err(f"Connection timed out to {session.ip}")
     if r.status_code == 401:
-        return _err("Session expired, retry to re-authenticate.", 401)
+        return _err(
+            "Authentication failed (HTTP 401). Credentials may be invalid or the session expired. "
+            "Check the credential provider configuration.",
+            401,
+        )
+    if r.status_code == 403:
+        return _err(
+            f"Access denied (HTTP 403). The credentials used do not have sufficient permissions "
+            f"for this operation on {session.ip}. Check the user role configuration on the device.",
+            403,
+        )
     if not r.ok:
         return _err(_extract_error_message(r), r.status_code)
     # DELETE may return 204 No Content
@@ -220,7 +270,17 @@ def patch(session, path: str, body: dict | None = None) -> dict:
     except requests.exceptions.Timeout:
         return _err(f"Connection timed out to {session.ip}")
     if r.status_code == 401:
-        return _err("Session expired, retry to re-authenticate.", 401)
+        return _err(
+            "Authentication failed (HTTP 401). Credentials may be invalid or the session expired. "
+            "Check the credential provider configuration.",
+            401,
+        )
+    if r.status_code == 403:
+        return _err(
+            f"Access denied (HTTP 403). The credentials used do not have sufficient permissions "
+            f"for this operation on {session.ip}. Check the user role configuration on the device.",
+            403,
+        )
     if not r.ok:
         return _err(_extract_error_message(r), r.status_code)
     return _ok(r.json())

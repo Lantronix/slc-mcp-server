@@ -1,6 +1,6 @@
 # SLC MCP Server, Tool Reference
 
-33 tools covering the SLC 9000 REST API v2. API base path: `/api/v2`. Authoritative spec: `SLC-API-v2-9_7_0_0R21-bundled.yaml`.
+37 tools covering the SLC 9000 REST API v2. API base path: `/api/v2`. Authoritative spec: `SLC-API-v2-9_7_0_0R21-bundled.yaml`.
 
 All tools return `{"ok": true, "data": {...}}` on success or `{"ok": false, "error": "..."}` on failure.
 
@@ -70,7 +70,7 @@ All tools return `{"ok": true, "data": {...}}` on success or `{"ok": false, "err
 |------|-------------|--------------|
 | `save_config` | Save running config to non-volatile storage. Requires `confirm=True`. | `POST /config/save` |
 | `export_config_commands` | Export config as a list of replayable CLI commands. Useful for backup and drift detection. | `GET /config/commands` |
-| `apply_config_commands` | Apply a list of CLI commands synchronously. Returns command output. Requires `confirm=True`. | `POST /config/batch` |
+| `apply_config_commands` | Apply a list of CLI commands synchronously. Returns command output. Requires `confirm=True`. Commands pass through CLI policy before sending, read-only by default (`SLC_CLI_WRITE_ENABLED=false`). | `POST /config/batch` |
 | `restore_config_baseline` | Restore the saved baseline config. Requires `confirm=True`. Returns 404 if no baseline exists. | `POST /config/baseline` |
 | `export_config_for_edit` | Export raw config blob for editing. | `POST /config/edit` |
 | `factory_reset` | Reset to factory defaults. Pass `confirm='FACTORY RESET'` (exact string). Irreversible. | `POST /config/factory_reset` |
@@ -81,6 +81,17 @@ All tools return `{"ok": true, "data": {...}}` on success or `{"ok": false, "err
 |------|-------------|--------------|
 | `get_sysadmin_user` | Get sysadmin account config (password policy, dialback settings). | `GET /users/sysadmin` |
 | `update_sysadmin_user` | Update sysadmin password, dialback settings. Requires `confirm=True`. | `PATCH /users/sysadmin` |
+
+## Percepxion Client
+
+These tools manage the Percepxion cloud client running on the SLC device. They route through `POST /config/batch` (CLI commands) since no REST endpoint exists for px client management. Status is always readable; write tools require `SLC_CLI_WRITE_ENABLED=true`.
+
+| Tool | Description | API endpoint |
+|------|-------------|--------------|
+| `get_px_status` | Get Percepxion client status: enable state, connection, server URL, heartbeat. Always permitted. | `POST /config/batch` (`show px status`) |
+| `start_px_client` | Enable the Percepxion client. Client registers with cloud in ~30s. Requires `confirm=True`. | `POST /config/batch` (`set px client enable`) |
+| `stop_px_client` | Disable the Percepxion client. Shutdown takes 60-120s. Requires `confirm=True`. | `POST /config/batch` (`set px client disable`) |
+| `restart_px_client` | Disable, poll until stopped (default 120s timeout), then enable. Requires `confirm=True`. | `POST /config/batch` |
 
 ## Destructive Operation Safety
 
