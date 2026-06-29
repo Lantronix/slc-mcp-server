@@ -7,5 +7,4 @@ build/
 .venv/
 .pytest_cache/
 .coverage
-CLAUDE.md
 docs/superpowers/

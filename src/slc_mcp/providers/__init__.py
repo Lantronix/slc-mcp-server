@@ -27,6 +27,9 @@ def get_provider() -> CredentialProvider:
     if name == "aws":
         from slc_mcp.providers.aws import AWSCredentialProvider
         return AWSCredentialProvider()
+    if name == "cyberark":
+        from slc_mcp.providers.cyberark import CyberArkCredentialProvider
+        return CyberArkCredentialProvider()
     raise CredentialError(
-        f"Unknown provider: {name!r}. Set SLC_CREDENTIAL_PROVIDER to: env, percepxion, vault, aws"
+        f"Unknown provider: {name!r}. Set SLC_CREDENTIAL_PROVIDER to: env, percepxion, vault, aws, cyberark"
     )

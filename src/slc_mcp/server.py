@@ -84,8 +84,8 @@ def _call_patch(device_id: str, path: str, body: dict | None = None) -> dict:
 @mcp.tool()
 def configure_provider(provider: str) -> dict:
     """Switch the active credential provider and clear all cached sessions.
-    Valid values: env, percepxion, vault, aws."""
-    valid = ("env", "percepxion", "vault", "aws")
+    Valid values: env, percepxion, vault, aws, cyberark."""
+    valid = ("env", "percepxion", "vault", "aws", "cyberark")
     if provider not in valid:
         return client._err(
             f"Invalid provider {provider!r}. Valid values: {', '.join(valid)}"

@@ -2,7 +2,7 @@
 
 An MCP (Model Context Protocol) server that exposes the Lantronix SLC9000 console server REST API as tools for AI agents. Agents can query port status, manage firmware, apply configuration, and control device sessions without touching the web UI or writing curl commands.
 
-This server handles device-level operations against individual SLC9000 units. It's designed to work alongside [percepxion-mcp-server](https://github.com/keelhaulin/percepxion-MCP-Server), which handles fleet-level operations through the Percepxion cloud platform. There's no capability overlap by design: when both servers are configured, the agent routes device-specific calls here and fleet-wide calls to Percepxion.
+This server handles device-level operations against individual SLC9000 units. It's designed to work alongside [percepxion-mcp-server](https://github.com/Lantronix/percepxion-mcp-server), which handles fleet-level operations through the Percepxion cloud platform. There's no capability overlap by design: when both servers are configured, the agent routes device-specific calls here and fleet-wide calls to Percepxion.
 
 ## Capability Split
 
@@ -48,7 +48,7 @@ Set environment variables before starting the server, or put them in a `.env` fi
 | `SLC_{KEY}_PASSWORD` |, | Per-device password |
 | `SLC_{KEY}_TOTP_SECRET` |, | Per-device TOTP secret |
 | `SLC_VERIFY_SSL` | `true` | Set to `false` only for lab devices with self-signed certificates. Never disable in production. |
-| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion` |
+| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion`, `cyberark` |
 
 **Key derivation example:** device_id `slc9000-dc-a` becomes key `SLC9000_DC_A`, so the IP var is `SLC_SLC9000_DC_A_IP`.
 
@@ -69,7 +69,9 @@ SLC_VERIFY_SSL=false
 
 **aws:** Reads from AWS Secrets Manager at secret name `slc/{device_id}`. Requires standard AWS credential configuration (IAM role, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, or instance profile). Secret JSON must contain `ip`, `username`, `password`, and optionally `totp_secret`.
 
-**percepxion:** Looks up the device IP from the Percepxion device registry by device_id, using the Percepxion API v2. Requires `PERCEPXION_API_URL`, `PERCEPXION_USERNAME`, `PERCEPXION_PASSWORD`. Username and password for the SLC device itself still come from `SLC_{KEY}_*` env vars. Use this when your device inventory is managed in Percepxion and IPs change.
+**percepxion:** Looks up the device IP from the Percepxion device registry by device_id, using the Percepxion API. Requires `PERCEPXION_API_URL` (default `https://api.percepxion.ai`), `PERCEPXION_USERNAME`, `PERCEPXION_PASSWORD`. SLC credentials still come from `SLC_{KEY}_*` env vars. Use this when your device inventory is managed in Percepxion and IPs change.
+
+**cyberark:** Retrieves credentials from CyberArk Central Credential Provider (CCP) REST API. Requires `CYBERARK_URL`, `CYBERARK_APP_ID`, `CYBERARK_SAFE`. Each SLC device must have an account stored in CyberArk with Object = device_id and Address = management IP. When `CYBERARK_CERT_PATH` and `CYBERARK_KEY_PATH` are set, mTLS is enabled automatically. See `.env.example` for all options.
 
 Switch providers at runtime without restarting:
 
@@ -172,7 +174,7 @@ When both servers are configured, route CLI commands that need output through sl
 
 | Tool | Description |
 |---|---|
-| `configure_provider(provider)` | Switch credential provider (env, vault, aws, percepxion) |
+| `configure_provider(provider)` | Switch credential provider (env, vault, aws, percepxion, cyberark) |
 
 ## Multi-Server Claude Desktop Config
 
@@ -193,7 +195,7 @@ Configure both servers together for full device + fleet coverage:
     },
     "percepxion-mcp-server": {
       "command": "python3",
-      "args": ["/path/to/percepxion-MCP-Server/server.py"],
+      "args": ["/path/to/percepxion-mcp-server/percepxion_mcp.py"],
       "env": {
         "PERCEPXION_API_URL": "https://api.percepxion.ai/api",
         "PERCEPXION_USERNAME": "user@example.com",
