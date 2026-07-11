@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 import time
 
@@ -22,6 +23,20 @@ from slc_mcp.providers import CredentialError, get_provider
 from slc_mcp.session import SessionManager
 
 _sessions = SessionManager()
+
+_SENSITIVE_CLI_PATTERN = re.compile(r"\b(password|secret|token|community|snmp)\b", re.IGNORECASE)
+
+
+def _redact_command(cmd: str) -> str:
+    """Redact an entire CLI command if it references a sensitive keyword."""
+    return "[REDACTED]" if _SENSITIVE_CLI_PATTERN.search(cmd) else cmd
+
+
+def _audit(tool_name: str, device_id: str, **details) -> None:
+    """Greppable audit line for a device-modifying tool. Call only after the
+    confirm/policy gate passes, right before the outbound device call."""
+    detail_str = " ".join(f"{k}={v}" for k, v in details.items())
+    log.info("AUDIT tool=%s device_id=%s %s", tool_name, device_id, detail_str)
 
 
 def _check_cli_write(tool_name: str) -> dict | None:
@@ -186,6 +201,7 @@ def reboot_device(device_id: str, confirm: bool = False) -> dict:
     """
     if not confirm:
         return {"ok": False, "error": "Set confirm=True to reboot the device."}
+    _audit("reboot_device", device_id)
     return _call_post(device_id, "/system/reboot", {})
 
 
@@ -358,6 +374,11 @@ def apply_config_commands(device_id: str, commands: list[str], confirm: bool = F
             cli_policy.check_command(cmd)
         except CLIPolicyViolation as exc:
             return client._err(str(exc))
+    _audit(
+        "apply_config_commands",
+        device_id,
+        commands=[_redact_command(c) for c in commands],
+    )
     return _call_post(device_id, "/config/batch", {"commands": "\n".join(commands)})
 
 
@@ -391,6 +412,7 @@ def factory_reset(device_id: str, confirm: str = "") -> dict:
     """
     if confirm != "FACTORY RESET":
         return {"ok": False, "error": "Pass confirm='FACTORY RESET' (exact string) to execute factory reset."}
+    _audit("factory_reset", device_id)
     return _call_post(device_id, "/config/factory_reset", {})
 
 
@@ -426,6 +448,13 @@ def update_sysadmin_user(
         body["allow_dialback"] = allow_dialback
     if dialback_number is not None:
         body["dialback_number"] = dialback_number
+    _audit(
+        "update_sysadmin_user",
+        device_id,
+        password_changed=new_password is not None,
+        allow_dialback=allow_dialback,
+        dialback_number_changed=dialback_number is not None,
+    )
     return _call_patch(device_id, "/users/sysadmin", body)
 
 

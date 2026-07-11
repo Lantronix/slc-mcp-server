@@ -49,6 +49,7 @@ Set environment variables before starting the server, or put them in a `.env` fi
 | `SLC_{KEY}_TOTP_SECRET` |, | Per-device TOTP secret |
 | `SLC_VERIFY_SSL` | `true` | Set to `false` only for lab devices with self-signed certificates. Never disable in production. |
 | `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion`, `cyberark` |
+| `SLC_KNOWN_DEVICE_IDS` | unset | `env` provider only. Comma-separated allow-list of device_ids. When set, rejects any device_id not in this list before attempting the default-credential fallback. Opt-in; leave unset for the default single-device lab workflow below. |
 
 **Key derivation example:** device_id `slc9000-dc-a` becomes key `SLC9000_DC_A`, so the IP var is `SLC_SLC9000_DC_A_IP`.
 

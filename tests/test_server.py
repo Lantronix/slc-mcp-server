@@ -96,6 +96,16 @@ def test_factory_reset_correct_string_passes_through():
     mock_post.assert_called_once_with("device-1", "/config/factory_reset", {})
 
 
+def test_factory_reset_emits_audit_log(caplog):
+    with patch.object(server, "_call_post", return_value={"ok": True, "data": {}}):
+        with caplog.at_level("INFO", logger="slc_mcp.server"):
+            server.factory_reset("device-1", confirm="FACTORY RESET")
+    assert any(
+        "AUDIT tool=factory_reset device_id=device-1" in rec.message
+        for rec in caplog.records
+    )
+
+
 # ---------------------------------------------------------------------------
 # reboot_device guard
 # ---------------------------------------------------------------------------
@@ -111,6 +121,22 @@ def test_reboot_device_confirm_passes_body():
         result = server.reboot_device("device-1", confirm=True)
     assert result["ok"] is True
     mock_post.assert_called_once_with("device-1", "/system/reboot", {})
+
+
+def test_reboot_device_emits_audit_log(caplog):
+    with patch.object(server, "_call_post", return_value={"ok": True, "data": {}}):
+        with caplog.at_level("INFO", logger="slc_mcp.server"):
+            server.reboot_device("device-1", confirm=True)
+    assert any(
+        "AUDIT tool=reboot_device device_id=device-1" in rec.message
+        for rec in caplog.records
+    )
+
+
+def test_reboot_device_no_audit_when_not_confirmed(caplog):
+    with caplog.at_level("INFO", logger="slc_mcp.server"):
+        server.reboot_device("device-1", confirm=False)
+    assert not any("AUDIT" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +170,38 @@ def test_apply_config_commands_write_allowed_when_enabled():
             result = server.apply_config_commands("device-1", cmds, confirm=True)
     assert result["ok"] is True
     mock_post.assert_called_once_with("device-1", "/config/batch", {"commands": "set hostname foo"})
+
+
+def test_apply_config_commands_audit_redacts_sensitive_command(caplog):
+    cmds = ["set password letmein123"]
+    with patch.dict("os.environ", {"SLC_CLI_WRITE_ENABLED": "true"}):
+        with patch.object(server, "_call_post", return_value={"ok": True, "data": {}}):
+            with caplog.at_level("INFO", logger="slc_mcp.server"):
+                server.apply_config_commands("device-1", cmds, confirm=True)
+    assert "[REDACTED]" in caplog.text
+    assert "letmein123" not in caplog.text
+
+
+def test_apply_config_commands_no_audit_when_policy_blocks(caplog):
+    with caplog.at_level("INFO", logger="slc_mcp.server"):
+        server.apply_config_commands("device-1", ["reload"], confirm=True)
+    assert not any("AUDIT" in rec.message for rec in caplog.records)
+
+
+def test_update_sysadmin_user_audit_never_logs_plaintext_password(caplog):
+    with patch.object(server, "_call_patch", return_value={"ok": True, "data": {}}):
+        with caplog.at_level("INFO", logger="slc_mcp.server"):
+            server.update_sysadmin_user("device-1", new_password="supersecretpw", confirm=True)
+    assert "supersecretpw" not in caplog.text
+    assert "password_changed=True" in caplog.text
+
+
+def test_update_sysadmin_user_audit_never_logs_raw_dialback_number(caplog):
+    with patch.object(server, "_call_patch", return_value={"ok": True, "data": {}}):
+        with caplog.at_level("INFO", logger="slc_mcp.server"):
+            server.update_sysadmin_user("device-1", dialback_number="+15551234567", confirm=True)
+    assert "+15551234567" not in caplog.text
+    assert "dialback_number_changed=True" in caplog.text
 
 
 def test_apply_config_commands_rejects_embedded_newline_smuggling():

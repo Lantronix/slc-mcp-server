@@ -1,22 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "slc-mcp-server"
 version = "0.1.0"
 description = "FastMCP server exposing SLC device REST API as MCP tools"
 requires-python = ">=3.11"
 dependencies = [
-  "fastmcp",
-  "requests",
-  "python-dotenv",
-  "hvac",
-  "boto3",
-  "pyotp>=2.9.0",
+  "fastmcp>=3.3.1,<4",
+  "requests>=2.31,<3",
+  "python-dotenv>=1.2.2,<2",
+  "hvac>=2.4.0,<3",
+  "boto3>=1.43.10,<2",
+  "pyotp>=2.9.0,<3",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest",
-  "responses",
-  "pytest-httpserver",
+  "pytest>=9.0.3,<10",
+  "responses>=0.26.0,<1",
+  "pytest-httpserver>=1.1.5,<2",
 ]
 
 [tool.setuptools]

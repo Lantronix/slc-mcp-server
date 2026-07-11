@@ -58,3 +58,47 @@ def test_per_device_overrides_global():
         creds = EnvCredentialProvider().get_credentials("mydev")
     assert creds["ip"] == "10.0.0.5"
     assert creds["username"] == "specific"
+
+
+def test_fallback_logs_warning(caplog):
+    base = {k: v for k, v in os.environ.items() if not k.startswith("SLC_")}
+    base.update({
+        "SLC_DEFAULT_IP": "10.0.0.2",
+        "SLC_USERNAME": "user",
+        "SLC_PASSWORD": "pass",
+    })
+    with patch.dict(os.environ, base, clear=True):
+        with caplog.at_level("WARNING", logger="slc_mcp.providers.env"):
+            EnvCredentialProvider().get_credentials("typo-device")
+    assert any("typo-device" in rec.message for rec in caplog.records)
+
+
+def test_full_per_device_vars_no_warning(caplog):
+    env = {
+        "SLC_SLC9000_DC_A_IP": "10.0.0.1",
+        "SLC_SLC9000_DC_A_USERNAME": "admin",
+        "SLC_SLC9000_DC_A_PASSWORD": "secret",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        with caplog.at_level("WARNING", logger="slc_mcp.providers.env"):
+            EnvCredentialProvider().get_credentials("slc9000-dc-a")
+    assert caplog.records == []
+
+
+def test_known_device_ids_rejects_unknown():
+    env = {"SLC_KNOWN_DEVICE_IDS": "slc9000-dc-a,slc9000-dc-b"}
+    with patch.dict(os.environ, env, clear=False):
+        with pytest.raises(CredentialError, match="SLC_KNOWN_DEVICE_IDS"):
+            EnvCredentialProvider().get_credentials("typo-device")
+
+
+def test_known_device_ids_allows_listed_id():
+    env = {
+        "SLC_KNOWN_DEVICE_IDS": "slc9000-dc-a,slc9000-dc-b",
+        "SLC_SLC9000_DC_A_IP": "10.0.0.1",
+        "SLC_SLC9000_DC_A_USERNAME": "admin",
+        "SLC_SLC9000_DC_A_PASSWORD": "secret",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        creds = EnvCredentialProvider().get_credentials("slc9000-dc-a")
+    assert creds["ip"] == "10.0.0.1"
