@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-11
+
 ### Added
 - **Audit logging** for device-modifying tools (`reboot_device`, `factory_reset`, `apply_config_commands`, `update_sysadmin_user`): logs tool name, device_id, and action detail once the confirm/policy gate passes. CLI commands referencing sensitive keywords (password, secret, token, community, snmp) are redacted; passwords and dialback numbers are never logged.
 - **`SLC_KNOWN_DEVICE_IDS`** env var: opt-in comma-separated allow-list for the `env` credential provider. When set, rejects any `device_id` not in the list before attempting the default-credential fallback.
