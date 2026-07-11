@@ -8,7 +8,7 @@
 ## Install
 
 ```bash
-git clone https://github.com/keelhaulin/slc-mcp-server
+git clone https://github.com/Lantronix/slc-mcp-server
 cd slc-mcp-server
 pip install -e ".[dev]"
 ```
