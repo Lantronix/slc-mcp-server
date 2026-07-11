@@ -15,10 +15,14 @@ log = logging.getLogger(__name__)
 
 _TIMEOUT = int(os.getenv("SLC_REQUEST_TIMEOUT", "30"))
 _PATH_PREFIX = os.getenv("SLC_API_PATH_PREFIX", "/api/v2")
-_VERIFY_SSL = os.getenv("SLC_VERIFY_SSL", "false").lower() not in ("false", "0", "no")
+_VERIFY_SSL = os.getenv("SLC_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
 _SCHEME = os.getenv("SLC_URL_SCHEME", "https")
 
 if not _VERIFY_SSL:
+    log.warning(
+        "SLC_VERIFY_SSL is disabled, TLS certificate verification is OFF. "
+        "Only use this for lab devices with self-signed certificates; never in production."
+    )
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 

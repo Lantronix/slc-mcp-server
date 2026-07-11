@@ -1,3 +1,5 @@
+import importlib
+
 import pytest
 import responses as resp_lib
 from unittest.mock import patch, MagicMock
@@ -33,6 +35,27 @@ def test_url_builds_correctly():
     url = client._url("10.0.0.1", "/system/status")
     assert url.startswith("https://10.0.0.1")
     assert url.endswith("/system/status")
+
+
+def test_verify_ssl_defaults_true_when_env_var_unset(monkeypatch):
+    monkeypatch.delenv("SLC_VERIFY_SSL", raising=False)
+    reloaded = importlib.reload(client)
+    try:
+        assert reloaded._VERIFY_SSL is True
+    finally:
+        importlib.reload(client)  # restore module state for subsequent tests
+
+
+def test_verify_ssl_false_logs_warning(monkeypatch, caplog):
+    monkeypatch.setenv("SLC_VERIFY_SSL", "false")
+    with caplog.at_level("WARNING", logger="slc_mcp.client"):
+        reloaded = importlib.reload(client)
+    try:
+        assert reloaded._VERIFY_SSL is False
+        assert any("TLS certificate verification is OFF" in rec.message for rec in caplog.records)
+    finally:
+        monkeypatch.delenv("SLC_VERIFY_SSL", raising=False)
+        importlib.reload(client)  # restore module state for subsequent tests
 
 
 @resp_lib.activate

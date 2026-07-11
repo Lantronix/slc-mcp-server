@@ -146,6 +146,17 @@ def test_apply_config_commands_write_allowed_when_enabled():
     mock_post.assert_called_once_with("device-1", "/config/batch", {"commands": "set hostname foo"})
 
 
+def test_apply_config_commands_rejects_embedded_newline_smuggling():
+    # A single list element containing embedded newlines must not be able to smuggle
+    # denied commands past check_command by normalizing to a read-only-looking string.
+    smuggled = "show version\nreload\nwrite erase"
+    with patch.object(server, "_call_post") as mock_post:
+        result = server.apply_config_commands("device-1", [smuggled], confirm=True)
+    assert result["ok"] is False
+    assert "embedded newlines" in result["error"]
+    mock_post.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # restore_config_baseline guard
 # ---------------------------------------------------------------------------
