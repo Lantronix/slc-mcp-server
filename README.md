@@ -9,8 +9,8 @@ This server handles device-level operations against individual SLC9000 units. It
 | Capability | slc-mcp-server | percepxion-mcp-server |
 |---|---|---|
 | Serial port status/config | `get_slc_port`, `get_slc_ports` | `list_device_ports` |
-| CLI commands with output | `apply_config_commands` |, (job status only) |
-| CLI commands (fire and forget) |, | `send_direct_cli_command` |
+| CLI commands, sync output (single call) | `apply_config_commands` |, |
+| CLI commands, async output (job + fetch) |, | `send_direct_cli_command` + `get_cli_command_output` |
 | Firmware update | `firmware_update`, `get_firmware_update_status` | `update_firmware_by_smart_group` |
 | Device config backup | `export_config_commands` | `get_device_config` |
 | User/session management | `get_sessions`, `terminate_session` |, |
@@ -141,13 +141,13 @@ The value is the base32 secret string, not a numeric code. PIN setup challenges 
 
 ## CLI Command Routing
 
-Two tools handle CLI commands and they behave differently. Pick the right one based on whether you need output.
+Two tools handle CLI commands and they behave differently. Pick based on reachability and whether synchronous output is worth the trade-off against fleet-wide dispatch.
 
-`apply_config_commands` (this server, `POST /config/batch`) sends CLI configuration commands to the SLC device and returns synchronous output directly. Use this when you need to see what the command produced.
+`apply_config_commands` (this server, `POST /config/batch`) sends CLI configuration commands to the SLC device and returns synchronous output directly, in one call, no polling. Use this when you have direct network access to the device and want output immediately.
 
-`send_direct_cli_command` (percepxion-mcp-server) dispatches CLI commands through Percepxion's async job system. Command execution happens on the device, but only job status comes back to the API caller, not CLI output. This is because Percepxion uses MQTT for the actual response channel. Use it for fire-and-forget fleet operations where confirmation that the job was dispatched is enough.
+`send_direct_cli_command` (percepxion-mcp-server) dispatches CLI commands through Percepxion's async job system, useful for devices reachable only through Percepxion (no direct network path) or for fleet-wide dispatch. Output is retrievable, but not synchronously: poll `search_job_groups`/`get_job_group` until status reaches `"Completed"`, then call `get_cli_command_output` (percepxion-mcp-server v1.1.0+) for the actual device response text. Before v1.1.0, only job status was reachable via the API at all, output text was believed unreachable; that's no longer the case, `get_cli_command_output` calls the same endpoint Percepxion's own WebUI console-editor uses to render command output.
 
-When both servers are configured, route CLI commands that need output through slc-mcp-server.
+When both servers are configured: prefer `apply_config_commands` for a directly-reachable device where you want output in one call with no polling. Use `send_direct_cli_command` + `get_cli_command_output` for devices without direct network access, or for fleet-wide/bulk dispatch where the extra async round trip is an acceptable trade-off.
 
 ## Tool Reference
 

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- **README CLI Command Routing guidance was stale**: documented `send_direct_cli_command` (percepxion-mcp-server) as unable to return CLI output at all ("only job status comes back... via MQTT"), directing all output-needing CLI calls to `apply_config_commands` here instead. As of percepxion-mcp-server v1.1.0, output is retrievable via a new `get_cli_command_output` tool (undocumented Percepxion endpoint, found by reading the WebUI's own console-editor source). Updated the Capability Split table and CLI Command Routing section to route by reachability (direct device access vs. Percepxion-only) and sync-vs-async preference, not by output availability.
+
 ## [1.0.0] - 2026-07-11
 
 ### Added
