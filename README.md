@@ -265,6 +265,18 @@ Configure both servers together for full device + fleet coverage:
 }
 ```
 
+## Claude Skill
+
+[`skills/slc-device-ops/SKILL.md`](skills/slc-device-ops/SKILL.md) packages the operational knowledge for this server: sync-vs-async CLI routing, credential provider setup, confirm-before-write discipline, and the standard workflows (health check, port inspection, config backup/apply, firmware with boot banks, sessions, Percepxion client control). With the skill installed, Claude uses the tools correctly on the first try instead of rediscovering these patterns.
+
+Install for all your projects:
+
+```bash
+mkdir -p ~/.claude/skills && cp -r skills/slc-device-ops ~/.claude/skills/
+```
+
+Or copy into a single project's `.claude/skills/` directory. The same file can be uploaded to claude.ai as a skill. Keep the skill in sync when tools change: `tests/test_skill_doc.py` fails the suite if tool names drift.
+
 ## Testing
 
 ```bash

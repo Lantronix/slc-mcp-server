@@ -69,7 +69,7 @@ def wipe_logs(device_id: str, confirm: str = "") -> dict:
 
 ## Step 4: Update docs
 
-Add a row to the appropriate table in `docs/tools.md`.
+Add a row to the appropriate table in `docs/tools.md` and to the Tool Reference in `README.md`. If the change affects usage patterns, parameters, or safety behavior, update `skills/slc-device-ops/SKILL.md` in the same PR. `tests/test_skill_doc.py` fails when tool names in the skill drift from `server.py`, but behavior text is on you.
 
 ## Step 5: Smoke test
 
