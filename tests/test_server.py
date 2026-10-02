@@ -65,13 +65,9 @@ def test_credential_error_returns_err():
 
 
 def test_tool_count():
-    import subprocess
-    result = subprocess.run(
-        ["grep", "-c", "@mcp.tool", "src/slc_mcp/server.py"],
-        capture_output=True, text=True,
-        cwd="/mnt/c/Users/rhogg/Projects/git/slc-mcp-server",
-    )
-    assert int(result.stdout.strip()) == 37
+    from pathlib import Path
+    source = Path(server.__file__).read_text()
+    assert source.count("@mcp.tool") == 37
 
 
 # ---------------------------------------------------------------------------
