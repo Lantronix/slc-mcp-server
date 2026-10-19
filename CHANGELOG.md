@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-19
+
 ### Added
 - **Continuous integration** (`.github/workflows/ci.yml`): every pull request and push to `main` runs the test suite on Python 3.11 and 3.12 against the hash-verified lockfile, a `pip-audit` scan of locked dependencies, a `gitleaks` scan of full git history, and a container build. The dependency audit also re-runs weekly. Workflow actions are pinned to commit SHAs and kept current by Dependabot.
 - **Pull request template** with the verification checklist expected before review.
@@ -12,6 +14,7 @@
 
 ### Security
 - PyJWT 2.13.0 to 2.15.1 and urllib3 2.7.0 to 2.8.0 in the lockfile, resolving published advisories reported by `pip-audit`. No other pinned versions changed.
+- mcp SDK 1.29.0 to 1.30.0 in the lockfile, resolving CVE-2026-59951 reported by `pip-audit`. No other pinned versions changed.
 
 ## [1.1.0] - 2026-08-27
 
