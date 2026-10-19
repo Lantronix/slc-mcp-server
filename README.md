@@ -284,4 +284,4 @@ cd /path/to/slc-mcp-server
 python3 -m pytest tests/ -v
 ```
 
-The test suite covers all 33 tools including confirm guards, 2FA challenge flows, error body parsing, and new HTTP methods (PUT, DELETE, PATCH). No live device is required; tests use mocked HTTP responses.
+The test suite covers all 37 tools (33 for the SLC 9000 REST API plus 4 for the Percepxion client), including confirm guards, 2FA challenge flows, error body parsing, and new HTTP methods (PUT, DELETE, PATCH). No live device is required; tests use mocked HTTP responses.

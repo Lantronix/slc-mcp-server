@@ -7,6 +7,7 @@
 - **Pull request template** with the verification checklist expected before review.
 
 ### Fixed
+- **Tool count in the docs**: `README.md` said the test suite covers 33 tools and `docs/tools.md` said all 37 tools cover the REST API. The server registers 37 tools: 33 for the SLC 9000 REST API v2 and 4 Percepxion client tools. Both docs now say so.
 - **Lockfile now resolves for every supported Python** (`requirements.txt`): it was compiled on Python 3.12 only, so `pip install -r requirements.txt` failed hash verification on Python 3.11 (`backports.tarfile` unpinned), which broke the Docker image build on its `python:3.11-slim` base. Regenerated as a universal lockfile with platform and version markers.
 
 ### Security
