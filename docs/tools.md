@@ -1,6 +1,6 @@
 # SLC MCP Server, Tool Reference
 
-37 tools covering the SLC 9000 REST API v2. API base path: `/api/v2`. Authoritative spec: `SLC-API-v2-9_7_0_0R21-bundled.yaml`.
+37 tools: 33 cover the SLC 9000 REST API v2 and 4 manage the Percepxion client on the device (`get_px_status`, `start_px_client`, `stop_px_client`, `restart_px_client`). API base path: `/api/v2`. Authoritative spec: `SLC-API-v2-9_7_0_0R21-bundled.yaml`.
 
 All tools return `{"ok": true, "data": {...}}` on success or `{"ok": false, "error": "..."}` on failure.
 
