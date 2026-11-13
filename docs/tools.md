@@ -8,7 +8,7 @@ All tools return `{"ok": true, "data": {...}}` on success or `{"ok": false, "err
 
 | Tool | Description | API endpoint |
 |------|-------------|--------------|
-| `configure_provider` | Switch active credential provider and clear session cache. Providers: `env`, `percepxion`, `vault`, `aws`, `cyberark`, `command`. |, |
+| `configure_provider` | Switch active credential provider and clear session cache. Providers: `env`, `percepxion`, `vault`, `aws`, `azure`, `cyberark`, `command`. |, |
 
 ## Auth & Sessions
 

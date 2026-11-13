@@ -61,7 +61,7 @@ claude mcp add slc \
 | `SLC_TOTP_SECRET` | | Default TOTP secret (base32 string) for 2FA-enabled devices |
 | `SLC_{KEY}_IP` / `SLC_{KEY}_USERNAME` / `SLC_{KEY}_PASSWORD` / `SLC_{KEY}_TOTP_SECRET` | | Per-device credentials. `{KEY}` is the `device_id` uppercased with non-alphanumeric characters replaced by `_` (device_id `slc9000-dc-a` → `SLC_SLC9000_DC_A_IP`). Per-device vars beat globals. |
 | `SLC_VERIFY_SSL` | `true` | Set `false` only for lab devices with self-signed certificates. Never in production. |
-| `SLC_CREDENTIAL_PROVIDER` | `env` | `env`, `vault`, `aws`, `percepxion`, `cyberark`, or `command` (table below) |
+| `SLC_CREDENTIAL_PROVIDER` | `env` | `env`, `vault`, `aws`, `azure`, `percepxion`, `cyberark`, or `command` (table below) |
 | `*_FILE` forms | unset | Each username, password and TOTP secret variable also accepts `_FILE` (for example `SLC_PASSWORD_FILE`), reading the first line of that file. Setting both forms is an error. |
 | `SLC_KNOWN_DEVICE_IDS` | unset | env and command providers: comma-separated allowlist of device_ids; rejects unknown IDs before falling back to default credentials |
 | `SLC_CLI_WRITE_ENABLED` | `false` | Allow write commands via `apply_config_commands` and px client tools |
@@ -79,6 +79,7 @@ claude mcp add slc \
 | `env` (default) | Env vars above; per-device beats global. Single-device and small setups. |
 | `vault` | HashiCorp Vault KV v2 at `slc/{device_id}` (`VAULT_ADDR`, `VAULT_TOKEN`); secret holds `ip`, `username`, `password`, optional `totp_secret`. |
 | `aws` | AWS Secrets Manager at secret name `slc/{device_id}`, standard AWS credential chain; same JSON fields. |
+| `azure` | Azure Key Vault (`AZURE_KEYVAULT_URL`) secret `slc-{device_id}` (non-alphanumerics become `-`; prefix via `AZURE_KEYVAULT_SECRET_PREFIX`); same JSON fields. Auth via `DefaultAzureCredential`; needs the `[azure]` extra. |
 | `percepxion` | Looks up the device **IP** from the Percepxion device registry by `device_id` (`PERCEPXION_API_URL`, `PERCEPXION_USERNAME`, `PERCEPXION_PASSWORD`); SLC credentials still come from `SLC_{KEY}_*` vars. Use when inventory lives in Percepxion and IPs change. |
 | `cyberark` | CyberArk CCP REST API (`CYBERARK_URL`, `CYBERARK_APP_ID`, `CYBERARK_SAFE`); one CyberArk account per SLC with Object = device_id, Address = management IP. mTLS auto-enables when `CYBERARK_CERT_PATH`/`CYBERARK_KEY_PATH` are set. |
 | `command` | Runs `SLC_CREDENTIAL_COMMAND` per device (`{device_id}` substituted, `SLC_DEVICE_ID` in its env); it prints JSON `ip`, `username`, `password`, optional `totp_secret`. Any secrets CLI (1Password, Bitwarden, Infisical, Delinea, Keeper, a script). |
