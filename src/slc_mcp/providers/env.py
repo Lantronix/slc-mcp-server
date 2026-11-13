@@ -2,7 +2,7 @@ import logging
 import os
 import re
 
-from slc_mcp.providers import CredentialError, CredentialProvider
+from slc_mcp.providers import CredentialError, CredentialProvider, read_env_secret
 
 log = logging.getLogger(__name__)
 
@@ -24,8 +24,8 @@ class EnvCredentialProvider(CredentialProvider):
 
         key = _device_key(device_id)
         ip = os.getenv(f"SLC_{key}_IP")
-        username = os.getenv(f"SLC_{key}_USERNAME")
-        password = os.getenv(f"SLC_{key}_PASSWORD")
+        username = read_env_secret(f"SLC_{key}_USERNAME")
+        password = read_env_secret(f"SLC_{key}_PASSWORD")
 
         if ip is None or username is None or password is None:
             log.warning(
@@ -36,8 +36,8 @@ class EnvCredentialProvider(CredentialProvider):
             )
 
         ip = ip or os.getenv("SLC_DEFAULT_IP")
-        username = username or os.getenv("SLC_USERNAME")
-        password = password or os.getenv("SLC_PASSWORD")
+        username = username or read_env_secret("SLC_USERNAME")
+        password = password or read_env_secret("SLC_PASSWORD")
 
         missing = [
             name
@@ -52,5 +52,7 @@ class EnvCredentialProvider(CredentialProvider):
             raise CredentialError(
                 f"Missing env vars for {device_id!r}: {', '.join(missing)}"
             )
-        totp_secret = os.getenv(f"SLC_{key}_TOTP_SECRET") or os.getenv("SLC_TOTP_SECRET") or None
+        totp_secret = (
+            read_env_secret(f"SLC_{key}_TOTP_SECRET") or read_env_secret("SLC_TOTP_SECRET") or None
+        )
         return {"ip": ip, "username": username, "password": password, "totp_secret": totp_secret}

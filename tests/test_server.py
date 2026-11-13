@@ -18,11 +18,24 @@ def test_configure_provider_invalid():
 
 
 def test_configure_provider_all_valid_values():
-    for p in ("env", "percepxion", "vault", "aws"):
+    for p in ("env", "percepxion", "vault", "aws", "cyberark", "command"):
         with patch.object(server._sessions, "set_provider"):
             with patch("slc_mcp.server.get_provider", return_value=MagicMock()):
                 result = server.configure_provider(p)
         assert result["ok"] is True
+
+
+def test_configure_provider_init_failure_rolls_back():
+    import os
+    from slc_mcp.providers import CredentialError
+    with patch.dict(os.environ, {"SLC_CREDENTIAL_PROVIDER": "env"}):
+        with patch.object(server._sessions, "set_provider") as set_provider:
+            with patch("slc_mcp.server.get_provider", side_effect=CredentialError("SLC_CREDENTIAL_COMMAND must be set")):
+                result = server.configure_provider("command")
+        assert os.environ["SLC_CREDENTIAL_PROVIDER"] == "env"
+    assert result["ok"] is False
+    assert "failed to initialize" in result["error"]
+    set_provider.assert_not_called()
 
 
 def test_save_config_requires_confirm():

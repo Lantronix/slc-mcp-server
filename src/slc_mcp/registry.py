@@ -3,7 +3,7 @@ import os
 
 import requests
 
-from slc_mcp.providers import CredentialError
+from slc_mcp.providers import CredentialError, read_env_secret
 
 log = logging.getLogger(__name__)
 
@@ -15,11 +15,12 @@ class PercepxionRegistry:
         self._csrf_token: str | None = None
 
     def _login(self) -> tuple[str, str]:
-        username = os.getenv("PERCEPXION_USERNAME")
-        password = os.getenv("PERCEPXION_PASSWORD")
+        username = read_env_secret("PERCEPXION_USERNAME")
+        password = read_env_secret("PERCEPXION_PASSWORD")
         if not self._base_url or not username or not password:
             raise CredentialError(
-                "Percepxion provider requires PERCEPXION_API_URL, PERCEPXION_USERNAME, PERCEPXION_PASSWORD"
+                "Percepxion provider requires PERCEPXION_API_URL, PERCEPXION_USERNAME, PERCEPXION_PASSWORD "
+                "(or the _FILE forms of the last two)"
             )
         r = requests.post(
             f"{self._base_url}/v2/user/login",

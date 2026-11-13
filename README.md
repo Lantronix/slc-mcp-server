@@ -48,8 +48,9 @@ Set environment variables before starting the server, or put them in a `.env` fi
 | `SLC_{KEY}_PASSWORD` |, | Per-device password |
 | `SLC_{KEY}_TOTP_SECRET` |, | Per-device TOTP secret |
 | `SLC_VERIFY_SSL` | `true` | Set to `false` only for lab devices with self-signed certificates. Never disable in production. |
-| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion`, `cyberark` |
-| `SLC_KNOWN_DEVICE_IDS` | unset | `env` provider only. Comma-separated allow-list of device_ids. When set, rejects any device_id not in this list before attempting the default-credential fallback. Opt-in; leave unset for the default single-device lab workflow below. |
+| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion`, `cyberark`, `command` |
+| `*_FILE` forms | unset | Every username, password and TOTP secret variable above also accepts a `_FILE` form (`SLC_PASSWORD_FILE`, `SLC_{KEY}_PASSWORD_FILE`, `SLC_TOTP_SECRET_FILE`, ...) that reads the value from the first line of a file, for Docker and Kubernetes secrets. Set one form, not both. Used by the `env` and `percepxion` providers. |
+| `SLC_KNOWN_DEVICE_IDS` | unset | `env` and `command` providers. Comma-separated allow-list of device_ids. When set, rejects any device_id not in this list before attempting the default-credential fallback. Opt-in; leave unset for the default single-device lab workflow below. |
 
 **Key derivation example:** device_id `slc9000-dc-a` becomes key `SLC9000_DC_A`, so the IP var is `SLC_SLC9000_DC_A_IP`.
 
@@ -120,6 +121,15 @@ This policy layer sits in addition to the SLC device's own user role restriction
 **percepxion:** Looks up the device IP from the Percepxion device registry by device_id, using the Percepxion API. Requires `PERCEPXION_API_URL` (default `https://api.percepxion.ai`), `PERCEPXION_USERNAME`, `PERCEPXION_PASSWORD`. SLC credentials still come from `SLC_{KEY}_*` env vars. Use this when your device inventory is managed in Percepxion and IPs change.
 
 **cyberark:** Retrieves credentials from CyberArk Central Credential Provider (CCP) REST API. Requires `CYBERARK_URL`, `CYBERARK_APP_ID`, `CYBERARK_SAFE`. Each SLC device must have an account stored in CyberArk with Object = device_id and Address = management IP. When `CYBERARK_CERT_PATH` and `CYBERARK_KEY_PATH` are set, mTLS is enabled automatically. See `.env.example` for all options.
+
+**command:** Runs a command you configure for each device and reads the credentials from its output. Use it for 1Password, Bitwarden Secrets Manager, Infisical, Delinea, Keeper or an in-house script. Set `SLC_CREDENTIAL_COMMAND`; every `{device_id}` in it is replaced with the device_id, and the command also gets `SLC_DEVICE_ID` in its environment. It must print a JSON object with `ip`, `username`, `password` and optionally `totp_secret`:
+
+```
+SLC_CREDENTIAL_PROVIDER=command
+SLC_CREDENTIAL_COMMAND=/usr/local/bin/slc-creds {device_id}
+```
+
+The command is split with shell-style quoting and run without a shell, so wrap pipes or `$VARS` in a script. device_ids are limited to letters, digits, `.`, `_`, `:` and `-`, and `SLC_KNOWN_DEVICE_IDS` is enforced before the command runs. `SLC_CREDENTIAL_COMMAND_TIMEOUT` sets the time limit in seconds (default 30). A non-zero exit fails the call with the exit status only. The first 200 characters of stderr go to the server log, never to the MCP client, and stdout is never logged. `configure_provider` can switch to this provider but can't change the command.
 
 Switch providers at runtime without restarting:
 
@@ -233,7 +243,7 @@ Tools for managing the Percepxion cloud client running on the SLC device. Status
 
 | Tool | Description |
 |---|---|
-| `configure_provider(provider)` | Switch credential provider (env, vault, aws, percepxion, cyberark) |
+| `configure_provider(provider)` | Switch credential provider (env, vault, aws, percepxion, cyberark, command) |
 
 ## Multi-Server Claude Desktop Config
 

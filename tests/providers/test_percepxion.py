@@ -36,3 +36,17 @@ def test_registry_missing_env_raises():
         registry = PercepxionRegistry()
         with pytest.raises(CredentialError, match="PERCEPXION_API_URL"):
             registry._login()
+
+
+def test_percepxion_provider_reads_password_file(tmp_path):
+    pw = tmp_path / "pw"
+    pw.write_text("filesecret\n")
+    mock_registry = MagicMock()
+    mock_registry.get_device_ip.return_value = "10.5.0.11"
+    base = {k: v for k, v in os.environ.items() if not k.startswith("SLC_")}
+    base.update({"SLC_USERNAME": "admin", "SLC_PASSWORD_FILE": str(pw)})
+    with patch("slc_mcp.providers.percepxion._registry", mock_registry):
+        with patch.dict(os.environ, base, clear=True):
+            from slc_mcp.providers.percepxion import PercepxionCredentialProvider
+            creds = PercepxionCredentialProvider().get_credentials("dc-slc-02")
+    assert creds["password"] == "filesecret"
