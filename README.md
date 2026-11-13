@@ -129,7 +129,7 @@ SLC_CREDENTIAL_PROVIDER=command
 SLC_CREDENTIAL_COMMAND=/usr/local/bin/slc-creds {device_id}
 ```
 
-The command is split with shell-style quoting and run without a shell, so wrap pipes or `$VARS` in a script. device_ids are limited to letters, digits, `.`, `_`, `:` and `-`, and `SLC_KNOWN_DEVICE_IDS` is enforced before the command runs. `SLC_CREDENTIAL_COMMAND_TIMEOUT` sets the time limit in seconds (default 30). A non-zero exit fails the call with the exit status and the first 200 characters of stderr; the command's output never appears in errors or logs. `configure_provider` can switch to this provider but can't change the command.
+The command is split with shell-style quoting and run without a shell, so wrap pipes or `$VARS` in a script. device_ids are limited to letters, digits, `.`, `_`, `:` and `-`, and `SLC_KNOWN_DEVICE_IDS` is enforced before the command runs. `SLC_CREDENTIAL_COMMAND_TIMEOUT` sets the time limit in seconds (default 30). A non-zero exit fails the call with the exit status only. The first 200 characters of stderr go to the server log, never to the MCP client, and stdout is never logged. `configure_provider` can switch to this provider but can't change the command.
 
 Switch providers at runtime without restarting:
 

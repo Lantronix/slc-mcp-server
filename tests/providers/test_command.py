@@ -88,14 +88,19 @@ def test_non_json_output_hidden():
     assert "leaked-secret" not in str(exc.value)
 
 
-def test_failure_reports_status_and_stderr_not_stdout():
-    cmd = _py("import sys; print('leaked-secret'); sys.stderr.write('item not found'); sys.exit(2)")
+def test_failure_keeps_output_out_of_error(caplog):
+    import logging
+    cmd = _py("import sys; print('leaked-stdout'); sys.stderr.write('leaked-stderr'); sys.exit(2)")
     with patch.dict(os.environ, {"SLC_CREDENTIAL_COMMAND": cmd}, clear=True):
-        with pytest.raises(CredentialError) as exc:
-            CommandCredentialProvider().get_credentials("dev1")
+        with caplog.at_level(logging.WARNING, logger="slc_mcp.providers.command"):
+            with pytest.raises(CredentialError) as exc:
+                CommandCredentialProvider().get_credentials("dev1")
     msg = str(exc.value)
-    assert "status 2" in msg and "item not found" in msg
-    assert "leaked-secret" not in msg
+    assert "status 2" in msg
+    assert "leaked-stdout" not in msg and "leaked-stderr" not in msg
+    # stderr reaches the server log only, never the tool result
+    assert "leaked-stderr" in caplog.text
+    assert "leaked-stdout" not in caplog.text
 
 
 def test_command_not_found():

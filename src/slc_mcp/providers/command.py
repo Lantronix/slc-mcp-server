@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import shlex
@@ -9,6 +10,8 @@ from slc_mcp.providers import CredentialError, CredentialProvider
 _PLACEHOLDER = "{device_id}"
 _SAFE_DEVICE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 _STDERR_LIMIT = 200
+
+log = logging.getLogger(__name__)
 
 
 class CommandCredentialProvider(CredentialProvider):
@@ -30,7 +33,8 @@ class CommandCredentialProvider(CredentialProvider):
     The command prints a JSON object with ``ip``, ``username``, ``password``
     and optionally ``totp_secret``. It comes only from the server's environment;
     no tool argument can set or change it. Command output never appears in
-    error messages.
+    error messages, which reach the MCP client. On failure, the first 200
+    characters of stderr go to the server log only.
     """
 
     def __init__(self) -> None:
@@ -83,8 +87,15 @@ class CommandCredentialProvider(CredentialProvider):
 
         if proc.returncode != 0:
             detail = (proc.stderr or "").strip()[:_STDERR_LIMIT]
-            msg = f"Credential command {name} exited with status {proc.returncode} for {device_id!r}"
-            raise CredentialError(f"{msg}: {detail}" if detail else msg)
+            if detail:
+                log.warning(
+                    "Credential command %s exited with status %d for %r, stderr: %s",
+                    name, proc.returncode, device_id, detail,
+                )
+            raise CredentialError(
+                f"Credential command {name} exited with status {proc.returncode} for {device_id!r}. "
+                "See the server log for its error output."
+            )
 
         try:
             data = json.loads(proc.stdout or "")
