@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Security
+- Lockfile refresh for 18 advisories reported by `pip-audit`: Authlib 1.7.2 to 1.9.5, FastMCP 3.4.7 to 3.4.11 (latest 3.x, GHSA-7xgj-8392-5q4r among others), joserfc 1.7.4 to 1.8.0, dnspython 2.8.0 to 2.9.2, certifi 2026.7.22 to 2026.10.23 and opentelemetry-api 1.44.0 to 1.45.2. `pip-audit` reports no known vulnerabilities in the new lockfile.
+
 ## [1.1.1] - 2026-10-19
 
 ### Added
