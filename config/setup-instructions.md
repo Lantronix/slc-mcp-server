@@ -61,6 +61,14 @@ SLC_SLC9000_PASSWORD=password
 
 Then call tools with `device_id="slc9000"`.
 
+Any username, password or TOTP secret variable also accepts a `_FILE` form that reads the value from the first line of a file, for Docker or Kubernetes secrets:
+
+```
+SLC_SLC9000_PASSWORD_FILE=/run/secrets/slc9000_password
+```
+
+Set either the variable or its `_FILE` form, not both.
+
 ### percepxion
 
 ```
@@ -92,7 +100,16 @@ AWS_DEFAULT_REGION=us-east-1
 
 Secrets expected in Secrets Manager at name `slc/{device_id}` with JSON fields `ip`, `username`, `password`.
 
+### command
+
+```
+SLC_CREDENTIAL_PROVIDER=command
+SLC_CREDENTIAL_COMMAND=/usr/local/bin/slc-creds {device_id}
+```
+
+Works with any secrets manager that has a CLI. `{device_id}` is replaced with the device_id, and the command also gets `SLC_DEVICE_ID` in its environment. It must print a JSON object with `ip`, `username`, `password` and optionally `totp_secret`. It runs without a shell, so wrap pipes or variable expansion in a script. `SLC_CREDENTIAL_COMMAND_TIMEOUT` defaults to 30 seconds.
+
 ## Switching Providers at Runtime
 
-Call the `configure_provider` tool from Claude with one of: `env`, `percepxion`, `vault`, `aws`.
+Call the `configure_provider` tool from Claude with one of: `env`, `percepxion`, `vault`, `aws`, `cyberark`, `command`.
 This clears all cached sessions and reloads credentials on the next device call.

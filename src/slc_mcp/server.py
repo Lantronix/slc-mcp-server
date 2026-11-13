@@ -111,14 +111,23 @@ def _call_patch(device_id: str, path: str, body: dict | None = None) -> dict:
 @mcp.tool()
 def configure_provider(provider: str) -> dict:
     """Switch the active credential provider and clear all cached sessions.
-    Valid values: env, percepxion, vault, aws, cyberark."""
-    valid = ("env", "percepxion", "vault", "aws", "cyberark")
+    Valid values: env, percepxion, vault, aws, cyberark, command."""
+    valid = ("env", "percepxion", "vault", "aws", "cyberark", "command")
     if provider not in valid:
         return client._err(
             f"Invalid provider {provider!r}. Valid values: {', '.join(valid)}"
         )
+    previous = os.environ.get("SLC_CREDENTIAL_PROVIDER")
     os.environ["SLC_CREDENTIAL_PROVIDER"] = provider
-    _sessions.set_provider(get_provider())
+    try:
+        new_provider = get_provider()
+    except CredentialError as exc:
+        if previous is None:
+            os.environ.pop("SLC_CREDENTIAL_PROVIDER", None)
+        else:
+            os.environ["SLC_CREDENTIAL_PROVIDER"] = previous
+        return client._err(f"Provider {provider!r} failed to initialize: {exc}")
+    _sessions.set_provider(new_provider)
     return client._ok({"provider": provider, "sessions_cleared": True})
 
 

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- **`command` credential provider.** `SLC_CREDENTIAL_PROVIDER=command` runs `SLC_CREDENTIAL_COMMAND` for each device, with `{device_id}` substituted and `SLC_DEVICE_ID` in the command's environment, and reads `ip`, `username`, `password` and an optional `totp_secret` from the JSON it prints. Any secrets manager with a CLI works this way (1Password, Bitwarden Secrets Manager, Infisical, Delinea, Keeper, an in-house script). The command runs without a shell, device_ids are restricted to a safe character set, `SLC_KNOWN_DEVICE_IDS` is enforced first, the timeout is configurable (`SLC_CREDENTIAL_COMMAND_TIMEOUT`, default 30 seconds) and the command's output never appears in errors or logs. `configure_provider` accepts `command`.
+- **`_FILE` variables.** Every username, password and TOTP secret variable read by the `env` and `percepxion` providers, including `PERCEPXION_USERNAME` and `PERCEPXION_PASSWORD`, accepts a `_FILE` form that reads the value from the first line of a file, for Docker and Kubernetes secrets. Setting both a variable and its `_FILE` form is an error.
+
+### Fixed
+- `configure_provider` no longer leaves `SLC_CREDENTIAL_PROVIDER` switched when the new provider fails to initialize. It restores the previous provider and returns an error instead of raising.
+
 ### Security
 - Lockfile refresh for 18 advisories reported by `pip-audit`: Authlib 1.7.2 to 1.9.5, FastMCP 3.4.7 to 3.4.11 (latest 3.x, GHSA-7xgj-8392-5q4r among others), joserfc 1.7.4 to 1.8.0, dnspython 2.8.0 to 2.9.2, certifi 2026.7.22 to 2026.10.23 and opentelemetry-api 1.44.0 to 1.45.2. `pip-audit` reports no known vulnerabilities in the new lockfile.
 
