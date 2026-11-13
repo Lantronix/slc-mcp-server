@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-13
+
 ### Added
 - **`command` credential provider.** `SLC_CREDENTIAL_PROVIDER=command` runs `SLC_CREDENTIAL_COMMAND` for each device, with `{device_id}` substituted and `SLC_DEVICE_ID` in the command's environment, and reads `ip`, `username`, `password` and an optional `totp_secret` from the JSON it prints. Any secrets manager with a CLI works this way (1Password, Bitwarden Secrets Manager, Infisical, Delinea, Keeper, an in-house script). The command runs without a shell, device_ids are restricted to a safe character set, `SLC_KNOWN_DEVICE_IDS` is enforced first, the timeout is configurable (`SLC_CREDENTIAL_COMMAND_TIMEOUT`, default 30 seconds) and the command's output never reaches the MCP client: a failure returns the exit status, and the first 200 characters of stderr go to the server log only. `configure_provider` accepts `command`.
 - **`_FILE` variables.** Every username, password and TOTP secret variable read by the `env` and `percepxion` providers, including `PERCEPXION_USERNAME` and `PERCEPXION_PASSWORD`, accepts a `_FILE` form that reads the value from the first line of a file, for Docker and Kubernetes secrets. Setting both a variable and its `_FILE` form is an error.
