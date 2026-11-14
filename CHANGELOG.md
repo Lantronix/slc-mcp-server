@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Azure Key Vault credential provider.** `SLC_CREDENTIAL_PROVIDER=azure` reads each device's credentials from the Key Vault at `AZURE_KEYVAULT_URL`, secret `slc-{device_id}` (characters Key Vault doesn't allow become `-`; prefix set by `AZURE_KEYVAULT_SECRET_PREFIX`), holding JSON `ip`, `username`, `password` and an optional `totp_secret`. Authentication uses `DefaultAzureCredential`, so managed identity, workload identity, a service principal or `az login` all work. Access-denied, missing-secret, no-identity and unreachable-vault failures each return a specific error, and secret values never appear in one. Install with the new `azure` extra. `configure_provider` accepts `azure`.
+
 ## [1.2.0] - 2026-11-13
 
 ### Added

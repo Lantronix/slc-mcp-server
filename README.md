@@ -48,7 +48,7 @@ Set environment variables before starting the server, or put them in a `.env` fi
 | `SLC_{KEY}_PASSWORD` |, | Per-device password |
 | `SLC_{KEY}_TOTP_SECRET` |, | Per-device TOTP secret |
 | `SLC_VERIFY_SSL` | `true` | Set to `false` only for lab devices with self-signed certificates. Never disable in production. |
-| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `percepxion`, `cyberark`, `command` |
+| `SLC_CREDENTIAL_PROVIDER` | `env` | Credential backend: `env`, `vault`, `aws`, `azure`, `percepxion`, `cyberark`, `command` |
 | `*_FILE` forms | unset | Every username, password and TOTP secret variable above also accepts a `_FILE` form (`SLC_PASSWORD_FILE`, `SLC_{KEY}_PASSWORD_FILE`, `SLC_TOTP_SECRET_FILE`, ...) that reads the value from the first line of a file, for Docker and Kubernetes secrets. Set one form, not both. Used by the `env` and `percepxion` providers. |
 | `SLC_KNOWN_DEVICE_IDS` | unset | `env` and `command` providers. Comma-separated allow-list of device_ids. When set, rejects any device_id not in this list before attempting the default-credential fallback. Opt-in; leave unset for the default single-device lab workflow below. |
 
@@ -90,7 +90,7 @@ docker run --rm \
   slc-mcp-server
 ```
 
-For production deployments with HashiCorp Vault or CyberArk, pass the relevant env vars instead of embedding credentials in the image. The Dockerfile uses a non-root user by default.
+For production deployments with HashiCorp Vault, Azure Key Vault or CyberArk, pass the relevant env vars instead of embedding credentials in the image. The Dockerfile uses a non-root user by default.
 
 ## CLI Policy
 
@@ -117,6 +117,8 @@ This policy layer sits in addition to the SLC device's own user role restriction
 **vault:** Reads from HashiCorp Vault KV v2 at path `slc/{device_id}`. Requires `VAULT_ADDR` and `VAULT_TOKEN` env vars. The Vault secret must contain `ip`, `username`, `password`, and optionally `totp_secret`. Good for production deployments where secrets are already in Vault.
 
 **aws:** Reads from AWS Secrets Manager at secret name `slc/{device_id}`. Requires standard AWS credential configuration (IAM role, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, or instance profile). Secret JSON must contain `ip`, `username`, `password`, and optionally `totp_secret`.
+
+**azure:** Reads from Azure Key Vault. Set `AZURE_KEYVAULT_URL`; each device's secret is named `slc-{device_id}`, with any character other than a letter, digit or `-` replaced by `-` (device_id `slc9000.dc_a` reads secret `slc-slc9000-dc-a`). Change the prefix with `AZURE_KEYVAULT_SECRET_PREFIX`. The secret holds JSON with `ip`, `username`, `password` and optionally `totp_secret`. Authentication uses `DefaultAzureCredential`: managed identity or workload identity on Azure, `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET` for a service principal, or `az login`. The identity needs the **Key Vault Secrets User** role. Install with `pip install ".[azure]"`; the Docker image doesn't include it. Because of the character mapping, device_ids that differ only in `.` or `_` versus `-` share a secret.
 
 **percepxion:** Looks up the device IP from the Percepxion device registry by device_id, using the Percepxion API. Requires `PERCEPXION_API_URL` (default `https://api.percepxion.ai`), `PERCEPXION_USERNAME`, `PERCEPXION_PASSWORD`. SLC credentials still come from `SLC_{KEY}_*` env vars. Use this when your device inventory is managed in Percepxion and IPs change.
 
@@ -243,7 +245,7 @@ Tools for managing the Percepxion cloud client running on the SLC device. Status
 
 | Tool | Description |
 |---|---|
-| `configure_provider(provider)` | Switch credential provider (env, vault, aws, percepxion, cyberark, command) |
+| `configure_provider(provider)` | Switch credential provider (env, vault, aws, azure, percepxion, cyberark, command) |
 
 ## Multi-Server Claude Desktop Config
 

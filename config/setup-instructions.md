@@ -100,6 +100,22 @@ AWS_DEFAULT_REGION=us-east-1
 
 Secrets expected in Secrets Manager at name `slc/{device_id}` with JSON fields `ip`, `username`, `password`.
 
+### azure
+
+```
+SLC_CREDENTIAL_PROVIDER=azure
+AZURE_KEYVAULT_URL=https://my-vault.vault.azure.net
+# AZURE_KEYVAULT_SECRET_PREFIX=slc-
+```
+
+Install the extra: `pip install -e ".[azure]"`. Store one secret per device named `slc-{device_id}` (characters other than letters, digits and `-` become `-`), holding JSON fields `ip`, `username`, `password` and optionally `totp_secret`:
+
+```
+az keyvault secret set --vault-name my-vault --name slc-slc9000 --file slc9000.json
+```
+
+The server authenticates with `DefaultAzureCredential` (managed identity, workload identity, service principal variables, or `az login`). Grant that identity the **Key Vault Secrets User** role on the vault.
+
 ### command
 
 ```
@@ -111,5 +127,5 @@ Works with any secrets manager that has a CLI. `{device_id}` is replaced with th
 
 ## Switching Providers at Runtime
 
-Call the `configure_provider` tool from Claude with one of: `env`, `percepxion`, `vault`, `aws`, `cyberark`, `command`.
+Call the `configure_provider` tool from Claude with one of: `env`, `percepxion`, `vault`, `aws`, `azure`, `cyberark`, `command`.
 This clears all cached sessions and reloads credentials on the next device call.

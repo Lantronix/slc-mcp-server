@@ -18,7 +18,7 @@ def test_configure_provider_invalid():
 
 
 def test_configure_provider_all_valid_values():
-    for p in ("env", "percepxion", "vault", "aws", "cyberark", "command"):
+    for p in ("env", "percepxion", "vault", "aws", "azure", "cyberark", "command"):
         with patch.object(server._sessions, "set_provider"):
             with patch("slc_mcp.server.get_provider", return_value=MagicMock()):
                 result = server.configure_provider(p)
