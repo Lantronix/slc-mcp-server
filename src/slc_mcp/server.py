@@ -112,6 +112,13 @@ def _call_patch(device_id: str, path: str, body: dict | None = None) -> dict:
 def configure_provider(provider: str) -> dict:
     """Switch the active credential provider and clear all cached sessions.
     Valid values: env, percepxion, vault, aws, azure, cyberark, command."""
+    if REMOTE_TRANSPORT:
+        # One process serves every remote client: one of them must not change where the
+        # credentials for all of them come from. Set SLC_CREDENTIAL_PROVIDER instead.
+        return client._err(
+            "configure_provider is disabled on the HTTP transports. Set "
+            "SLC_CREDENTIAL_PROVIDER in the server's environment and restart it."
+        )
     valid = ("env", "percepxion", "vault", "aws", "azure", "cyberark", "command")
     if provider not in valid:
         return client._err(
@@ -551,3 +558,90 @@ def restart_px_client(
         )
 
     return _call_post(device_id, "/config/batch", {"commands": "set px client enable"})
+
+
+# ---------------------------------------------------------------------------
+# Transports
+# ---------------------------------------------------------------------------
+
+# Set by main() when an HTTP transport is used: configure_provider is then refused.
+REMOTE_TRANSPORT = False
+
+
+def build_http_app(
+    transport: str,
+    stateless_http: bool = False,
+    allowed_hosts: list[str] | None = None,
+    allowed_origins: list[str] | None = None,
+    auth_token: str | None = None,
+    validate_every_request: bool = False,
+):
+    """ASGI app for the remote transports.
+
+    http: Streamable HTTP at /mcp. sse: legacy HTTP+SSE at /sse (messages under
+    /messages/). both: one app serving both, so existing SSE clients keep working
+    while new clients use Streamable HTTP. The Streamable HTTP app's lifespan
+    starts the server lifespan and its session manager, which covers SSE too.
+
+    auth_token adds bearer-token authentication to every route.
+    validate_every_request makes the Host/Origin guard check every request
+    (used for non-loopback binds) instead of FastMCP's loopback-only default.
+    """
+    from starlette.middleware import Middleware
+
+    from slc_mcp.remote_security import HTTP_TRANSPORTS, BearerAuthMiddleware
+
+    if transport not in HTTP_TRANSPORTS:
+        raise ValueError(f"MCP_TRANSPORT must be stdio, http, sse or both, not {transport!r}")
+    opts = {
+        "allowed_hosts": allowed_hosts or None,
+        "allowed_origins": allowed_origins or None,
+        "host_origin_protection": True if validate_every_request else "auto",
+        "middleware": [Middleware(BearerAuthMiddleware, token=auth_token)] if auth_token else None,
+    }
+    if transport == "sse":
+        return mcp.http_app(path="/sse", transport="sse", **opts)
+    app = mcp.http_app(path="/mcp", transport="http", stateless_http=stateless_http, **opts)
+    if transport == "both":
+        sse = mcp.http_app(path="/sse", transport="sse", **opts)
+        app.router.routes.extend(sse.routes)
+    return app
+
+
+def main() -> None:
+    """Run the server on the transport MCP_TRANSPORT names (stdio by default)."""
+    global REMOTE_TRANSPORT
+    from slc_mcp.remote_security import (
+        RemoteConfigError,
+        check_remote_settings,
+        settings_from_env,
+        transport_from_env,
+    )
+
+    try:
+        cfg = transport_from_env()
+        if cfg.transport in ("", "stdio"):
+            mcp.run()
+            return
+        settings = settings_from_env(cfg.transport, cfg.host)
+        check_remote_settings(settings)
+        app = build_http_app(
+            cfg.transport,
+            stateless_http=cfg.stateless_http,
+            allowed_hosts=settings.allowed_hosts,
+            allowed_origins=settings.allowed_origins,
+            auth_token=settings.token,
+            validate_every_request=settings.remote_bind,
+        )
+    except (RemoteConfigError, ValueError) as e:
+        log.error("refusing to start: %s", e)
+        raise SystemExit(2) from e
+    REMOTE_TRANSPORT = True
+
+    import uvicorn
+
+    uvicorn.run(app, host=cfg.host, port=cfg.port, log_level="info", lifespan="on")
+
+
+if __name__ == "__main__":
+    main()

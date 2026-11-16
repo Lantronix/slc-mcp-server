@@ -1,4 +1,4 @@
-from slc_mcp.server import mcp
+from slc_mcp.server import main
 
 if __name__ == "__main__":
-    mcp.run()
+    main()

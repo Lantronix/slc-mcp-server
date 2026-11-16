@@ -17,4 +17,7 @@ ENV SLC_VERIFY_SSL=true
 
 USER appuser
 
+# Used only when MCP_TRANSPORT is http, sse or both.
+EXPOSE 8770
+
 ENTRYPOINT ["python3", "run_server.py"]
