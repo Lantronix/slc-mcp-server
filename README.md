@@ -92,6 +92,34 @@ docker run --rm \
 
 For production deployments with HashiCorp Vault, Azure Key Vault or CyberArk, pass the relevant env vars instead of embedding credentials in the image. The Dockerfile uses a non-root user by default.
 
+## Remote Transports
+
+The server speaks stdio by default, which is what a client that launches it as a subprocess expects. Set `MCP_TRANSPORT` to serve clients over the network from one long-running process instead.
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_TRANSPORT` | `stdio` | `stdio`, `http` (Streamable HTTP at `/mcp`), `sse` (legacy HTTP+SSE at `/sse`) or `both` |
+| `MCP_HOST` | `127.0.0.1` | Bind address. Loopback needs no further settings. |
+| `MCP_PORT` | `8770` | Listen port |
+| `MCP_STATELESS_HTTP` | `false` | Streamable HTTP without server-side sessions, for load-balanced deployments |
+| `MCP_AUTH_TOKEN` | unset | Bearer token clients must send, at least 16 characters (`openssl rand -hex 32`). `MCP_AUTH_TOKEN_FILE` reads it from a file. Required when `MCP_HOST` isn't loopback. |
+| `MCP_ALLOWED_HOSTS` | unset | Comma-separated host names and addresses clients use to reach the server (`mcp-host:8770`). Required when `MCP_HOST` isn't loopback; requests with any other `Host` header are refused. |
+| `MCP_ALLOWED_ORIGINS` | unset | Comma-separated browser origins allowed to call the server |
+| `MCP_ALLOW_UNAUTHENTICATED` | unset | `1` starts a non-loopback server without a token. The server logs a warning. Anyone who can reach the port can then drive every configured device. |
+
+The server holds device credentials, so it refuses to start on a non-loopback address without a token and an allowed-hosts list. `configure_provider` is disabled on the HTTP transports: one client must not change where the credentials for every client come from. Set `SLC_CREDENTIAL_PROVIDER` in the server's environment instead.
+
+```bash
+docker run -d --name slc-mcp --env-file .env \
+  -e MCP_TRANSPORT=http -e MCP_HOST=0.0.0.0 \
+  -e MCP_AUTH_TOKEN="$MCP_AUTH_TOKEN" -e MCP_ALLOWED_HOSTS=mcp-host:8770 \
+  -p 8770:8770 slc-mcp-server
+
+claude mcp add --transport http slc http://mcp-host:8770/mcp --header "Authorization: Bearer $MCP_AUTH_TOKEN"
+```
+
+Other clients take the same URL and `Authorization` header. The token travels in clear over plain HTTP, so put the server behind TLS (a reverse proxy) when clients connect across a network you don't control.
+
 ## CLI Policy
 
 The server enforces a CLI policy layer on top of the SLC device's own permission system. By default, `apply_config_commands` and the Percepxion client write tools (`start_px_client`, `stop_px_client`, `restart_px_client`) reject write commands unless explicitly enabled.

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Streamable HTTP and SSE transports.** `MCP_TRANSPORT=http` serves Streamable HTTP at `/mcp`, `sse` serves legacy HTTP+SSE at `/sse`, and `both` serves the two from one process on `MCP_HOST`:`MCP_PORT` (default `127.0.0.1:8770`). stdio stays the default, so existing configurations are unchanged. On a non-loopback address the server refuses to start without a bearer token (`MCP_AUTH_TOKEN` or `MCP_AUTH_TOKEN_FILE`, at least 16 characters) and `MCP_ALLOWED_HOSTS`, and checks the `Host` and `Origin` headers of every request. `configure_provider` is disabled on the HTTP transports.
+
 ## [1.3.0] - 2026-11-15
 
 ### Added
