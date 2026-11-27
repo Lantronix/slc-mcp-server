@@ -43,7 +43,7 @@ TOOL_NAME_RE = re.compile(
 
 def registered_tools() -> set[str]:
     src = SERVER_PY.read_text()
-    return set(re.findall(r"@mcp\.tool\(\)\s*\ndef (\w+)", src))
+    return set(re.findall(r"@(?:read|write)_tool\s*\ndef (\w+)", src))
 
 
 def skill_tool_mentions() -> set[str]:

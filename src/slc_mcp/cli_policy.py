@@ -1,6 +1,8 @@
 import os
 import re
 
+from slc_mcp import write_policy
+
 
 class CLIPolicyViolation(Exception):
     pass
@@ -52,7 +54,17 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def cli_write_enabled() -> bool:
+    """SLC_CLI_WRITE_ENABLED, forced off while the server is read-only."""
+    if not write_policy.writes_allowed():
+        return False
     return _env_bool("SLC_CLI_WRITE_ENABLED", False)
+
+
+def cli_yolo_enabled() -> bool:
+    """SLC_CLI_YOLO, forced off while the server is read-only (it would skip the write check)."""
+    if not write_policy.writes_allowed():
+        return False
+    return _env_bool("SLC_CLI_YOLO", False)
 
 
 def check_command(
@@ -68,8 +80,8 @@ def check_command(
 
     All keyword args override their corresponding env var for testability.
     """
-    _write = write_enabled if write_enabled is not None else _env_bool("SLC_CLI_WRITE_ENABLED", False)
-    _yolo = yolo if yolo is not None else _env_bool("SLC_CLI_YOLO", False)
+    _write = write_enabled if write_enabled is not None else cli_write_enabled()
+    _yolo = yolo if yolo is not None else cli_yolo_enabled()
     _max = max_length if max_length is not None else int(os.getenv("SLC_CLI_MAX_LENGTH", "512"))
     _deny = deny if deny is not None else (
         DEFAULT_DENY_COMMANDS

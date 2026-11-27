@@ -4,6 +4,8 @@
 
 All tools return `{"ok": true, "data": {...}}` on success or `{"ok": false, "error": "..."}` on failure.
 
+22 are read tools (`readOnlyHint: true`) and 15 are write tools (`readOnlyHint: false`, `destructiveHint: true`). With `MCP_READ_ONLY=true`, or once `MCP_WRITES_UNTIL` has passed, write tools aren't listed and a call to one is refused. The README's Read-Only Mode section lists each tool's class.
+
 ## Admin
 
 | Tool | Description | API endpoint |

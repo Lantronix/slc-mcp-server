@@ -19,7 +19,7 @@ Full per-tool parameter reference: the Tool Reference section of this repository
 
 **Confirm before writing.** Every mutating tool takes a `confirm` parameter, and the server's CLI policy blocks write commands by default (`SLC_CLI_WRITE_ENABLED=false`). Present the exact change to the operator before calling `apply_config_commands`, `firmware_update`, `reboot_device`, `terminate_session`, `update_sysadmin_user`, or any px client start/stop. `factory_reset` requires the literal confirm string `"FACTORY RESET"` and is irreversible; treat it as radioactive.
 
-**The CLI policy is server-side.** `SLC_CLI_WRITE_ENABLED`, the deny list, and the allowlist are environment variables on the MCP server process. You cannot override them at runtime, and the device's own role system applies on top: a command that passes MCP policy can still be rejected by the device if the account lacks the role.
+**The CLI policy is server-side.** `SLC_CLI_WRITE_ENABLED`, the deny list, and the allowlist are environment variables on the MCP server process. You cannot override them at runtime, and the device's own role system applies on top: a command that passes MCP policy can still be rejected by the device if the account lacks the role. The server can also run read-only (`MCP_READ_ONLY=true`, or after `MCP_WRITES_UNTIL` passes): write tools such as `reboot_device` and `apply_config_commands` then aren't in the tool list, and a call returns a "read-only" error. Report that to the operator; there's no way around it from the client.
 
 **Read before you write.** `get_system_status` + `get_slc_port`/`get_slc_ports` before changing anything. `export_config_commands` (a replayable backup) before config changes worth protecting.
 
