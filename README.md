@@ -127,9 +127,9 @@ Every tool is a read tool or a write tool, and says which through the MCP standa
 | Variable | Default | Description |
 |---|---|---|
 | `MCP_READ_ONLY` | `false` | `true` registers read tools only. A write tool isn't in the tool list, a call to one by name is refused with a "read-only" error, and `SLC_CLI_WRITE_ENABLED` and `SLC_CLI_YOLO` are treated as `false` whatever they're set to. |
-| `MCP_WRITES_UNTIL` | unset | Epoch seconds, used only when `MCP_READ_ONLY` is `false`. Write tools work until that time. At that time the server disables them and sends `notifications/tools/list_changed` to connected clients, and any later write call is refused, even from a client still holding the old tool list. A time already past at start-up means read-only. |
+| `MCP_WRITES_UNTIL` | unset | Whole epoch seconds, used only when `MCP_READ_ONLY` is `false`, at most 7 days after start-up. Write tools work until that time, measured on both the wall clock and the monotonic clock from start-up, whichever ends first. At that time the server disables them and sends `notifications/tools/list_changed` to connected clients, and any later write call is refused, even from a client still holding the old tool list. A time already past at start-up means read-only. |
 
-Both fail closed: a value the server can't parse means read-only. The server logs which state it started in. Write tools come back only with a restart, for example with a later `MCP_WRITES_UNTIL`:
+Both fail closed: a value the server can't use means read-only, and the server logs why. That includes a fraction, a value above 1e10 (milliseconds rather than seconds) and a window longer than 7 days. Multi-step write tools such as `restart_px_client` check again before each device write, and the next `tools/list` after the deadline disables write tools even if the server's timer hasn't run yet. The server logs which state it started in. Write tools come back only with a restart, for example with a later `MCP_WRITES_UNTIL`:
 
 ```bash
 MCP_WRITES_UNTIL=$(( $(date +%s) + 8*3600 )) python run_server.py   # write tools for the next 8 hours

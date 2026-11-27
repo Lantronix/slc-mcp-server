@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- **Read-only mode and a write window.** Every tool now carries the MCP standard annotations: `readOnlyHint: true` on the 22 read tools, `readOnlyHint: false` and `destructiveHint: true` on the 15 write tools. `MCP_READ_ONLY=true` registers read tools only, refuses a write tool called by name with a "read-only" error, and treats `SLC_CLI_WRITE_ENABLED` and `SLC_CLI_YOLO` as `false`. `MCP_WRITES_UNTIL` (epoch seconds) keeps write tools on until that time, then disables them, sends `tools/list_changed` and refuses later write calls; a time already past at start-up means read-only. Both default to off, so the tool list and behavior are unchanged unless they're set. A test fails on any new tool declared without a read or write class.
+- **Read-only mode and a write window.** Every tool now carries the MCP standard annotations: `readOnlyHint: true` on the 22 read tools, `readOnlyHint: false` and `destructiveHint: true` on the 15 write tools. `MCP_READ_ONLY=true` registers read tools only, refuses a write tool called by name with a "read-only" error, and treats `SLC_CLI_WRITE_ENABLED` and `SLC_CLI_YOLO` as `false`. `MCP_WRITES_UNTIL` (whole epoch seconds, at most 7 days ahead) keeps write tools on until that time, measured on the wall and monotonic clocks, then disables them, sends `tools/list_changed` and refuses later write calls; a time already past at start-up, or a value the server can't use, means read-only. Both default to off, so the tool list and behavior are unchanged unless they're set. A test fails on any new tool declared without a read or write class.
 
 ## [1.4.0] - 2026-11-15
 

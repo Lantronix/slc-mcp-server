@@ -157,6 +157,29 @@ def test_default_tool_list_is_unchanged():
 # Settings
 # ---------------------------------------------------------------------------
 
+class FakeTime:
+    """Wall and monotonic clocks the test moves by hand. Start-up is wall 1000, monotonic 0."""
+
+    def __init__(self):
+        self.wall = 1000.0
+        self.mono = 0.0
+
+    def advance(self, seconds):
+        self.wall += seconds
+        self.mono += seconds
+
+
+@pytest.fixture()
+def fake_time(monkeypatch):
+    t = FakeTime()
+    monkeypatch.setattr(write_policy, "clock", lambda: t.wall)
+    monkeypatch.setattr(write_policy, "monotonic", lambda: t.mono)
+    monkeypatch.setattr(write_policy, "_start_wall", write_policy._start_wall)
+    monkeypatch.setattr(write_policy, "_start_mono", write_policy._start_mono)
+    write_policy.mark_start()
+    return t
+
+
 @pytest.mark.parametrize(
     "env, allowed",
     [
@@ -168,29 +191,66 @@ def test_default_tool_list_is_unchanged():
         ({"MCP_READ_ONLY": "YES"}, False),
         ({"MCP_READ_ONLY": "sometimes"}, False),
         ({"MCP_WRITES_UNTIL": "2000"}, True),
+        ({"MCP_WRITES_UNTIL": " 2000 "}, True),
         ({"MCP_WRITES_UNTIL": "1000"}, False),
         ({"MCP_WRITES_UNTIL": "500"}, False),
+        ({"MCP_WRITES_UNTIL": "-5"}, False),
         ({"MCP_WRITES_UNTIL": "soon"}, False),
         ({"MCP_WRITES_UNTIL": "nan"}, False),
+        ({"MCP_WRITES_UNTIL": "inf"}, False),
+        ({"MCP_WRITES_UNTIL": "2000.5"}, False),
+        ({"MCP_WRITES_UNTIL": "1e20"}, False),
+        ({"MCP_WRITES_UNTIL": "9" * 400}, False),
         ({"MCP_READ_ONLY": "true", "MCP_WRITES_UNTIL": "2000"}, False),
     ],
 )
-def test_writes_allowed(env, allowed):
-    assert write_policy.writes_allowed(env, now=1000.0) is allowed
+def test_writes_allowed(fake_time, env, allowed):
+    assert write_policy.writes_allowed(env) is allowed
 
 
-def test_writes_allowed_reads_the_injected_clock(monkeypatch):
-    monkeypatch.setattr(write_policy, "clock", lambda: 1999.0)
-    assert write_policy.writes_allowed({"MCP_WRITES_UNTIL": "2000"})
-    monkeypatch.setattr(write_policy, "clock", lambda: 2000.0)
-    assert not write_policy.writes_allowed({"MCP_WRITES_UNTIL": "2000"})
+def test_window_of_exactly_seven_days_is_accepted(fake_time):
+    limit = 1000 + write_policy.MAX_WINDOW_SECONDS
+    assert write_policy.writes_allowed({"MCP_WRITES_UNTIL": str(limit)})
+    assert not write_policy.writes_allowed({"MCP_WRITES_UNTIL": str(limit + 1)})
 
 
-def test_describe_names_the_state(monkeypatch):
-    monkeypatch.setattr(write_policy, "clock", lambda: 1000.0)
+def test_milliseconds_are_refused_and_logged(fake_time, caplog):
+    env = {"MCP_WRITES_UNTIL": "1798761600000"}
+    with caplog.at_level("ERROR", logger="slc_mcp.write_policy"):
+        assert write_policy.writes_until(env) == 0
+        assert not write_policy.writes_allowed(env)
+    assert "milliseconds" in caplog.text
+    assert caplog.text.count("milliseconds") == 1  # logged once, not per call
+
+
+@pytest.mark.parametrize("value", ["1e20", "1798761600000", "nan", "-1", "9" * 400, "2000.5"])
+def test_describe_never_raises(fake_time, value):
+    line = write_policy.describe({"MCP_WRITES_UNTIL": value})
+    assert line.startswith("write tools off")
+
+
+def test_window_ends_on_the_wall_clock(fake_time):
+    env = {"MCP_WRITES_UNTIL": "2000"}
+    fake_time.wall = 1999.0
+    assert write_policy.writes_allowed(env)
+    fake_time.wall = 2000.0  # wall clock jumps ahead; monotonic hasn't moved
+    assert not write_policy.writes_allowed(env)
+
+
+def test_window_ends_on_the_monotonic_clock(fake_time):
+    env = {"MCP_WRITES_UNTIL": "2000"}
+    fake_time.mono = 999.0
+    assert write_policy.writes_allowed(env)
+    fake_time.mono = 1000.0  # wall clock set back, but 1000 s have really passed
+    assert fake_time.wall == 1000.0
+    assert not write_policy.writes_allowed(env)
+    assert write_policy.seconds_left(env) == 0
+
+
+def test_describe_names_the_state(fake_time):
     assert write_policy.describe({}) == "write tools on"
     assert "MCP_READ_ONLY" in write_policy.describe({"MCP_READ_ONLY": "true"})
-    assert "has passed" in write_policy.describe({"MCP_WRITES_UNTIL": "10"})
+    assert "write tools off" in write_policy.describe({"MCP_WRITES_UNTIL": "10"})
     assert "on until" in write_policy.describe({"MCP_WRITES_UNTIL": "2000"})
 
 
@@ -314,18 +374,16 @@ async def _idle():
     return None
 
 
-def test_write_window_closes_on_the_injected_clock(monkeypatch, fresh_visibility):
-    now = [1000.0]
-    monkeypatch.setattr(write_policy, "clock", lambda: now[0])
+def test_write_window_closes_on_the_injected_clock(monkeypatch, fresh_visibility, fake_time):
     monkeypatch.setenv("MCP_WRITES_UNTIL", "1500")
     real_enforce = server.enforce_write_window
-    monkeypatch.setattr(server, "enforce_write_window", _idle)  # keep the lifespan's timer out of it
+    monkeypatch.setattr(server, "enforce_write_window", _idle)  # keep the automatic timer out of it
 
     sleeps: list[float] = []
 
     async def fake_sleep(seconds):
         sleeps.append(seconds)
-        now[0] += seconds
+        fake_time.advance(seconds)
 
     async def scenario():
         handler = _ListChanged()
@@ -339,7 +397,6 @@ def test_write_window_closes_on_the_injected_clock(monkeypatch, fresh_visibility
             await real_enforce(sleep=fake_sleep)
 
             after = {t.name for t in await c.list_tools()}
-            assert not after & EXPECTED_WRITE_TOOLS
             assert after == EXPECTED_READ_TOOLS
             await asyncio.wait_for(handler.event.wait(), timeout=5)
             assert handler.count == 1
@@ -358,16 +415,14 @@ def test_write_window_closes_on_the_injected_clock(monkeypatch, fresh_visibility
     assert max(sleeps) <= 60.0
 
 
-def test_write_call_refused_after_expiry_before_tools_are_disabled(monkeypatch, fresh_visibility):
-    now = [1000.0]
-    monkeypatch.setattr(write_policy, "clock", lambda: now[0])
+def test_write_call_refused_after_expiry_before_tools_are_disabled(monkeypatch, fresh_visibility, fake_time):
     monkeypatch.setenv("MCP_WRITES_UNTIL", "1500")
     monkeypatch.setattr(server, "enforce_write_window", _idle)
 
     async def scenario():
         async with Client(server.mcp) as c:
             await c.list_tools()
-            now[0] = 1500.0
+            fake_time.advance(500)
             late = await c.call_tool(
                 "reboot_device", {"device_id": "d1", "confirm": True}, raise_on_error=False
             )
@@ -379,8 +434,68 @@ def test_write_call_refused_after_expiry_before_tools_are_disabled(monkeypatch, 
     post.assert_not_called()
 
 
-def test_lifespan_closes_the_write_window_in_real_time(monkeypatch, fresh_visibility):
-    monkeypatch.setenv("MCP_WRITES_UNTIL", str(time.time() + 0.5))
+def test_list_tools_closes_an_expired_window_without_the_timer(monkeypatch, fresh_visibility, fake_time):
+    # The timer is asleep (host suspended); the next tools/list must not show write tools.
+    monkeypatch.setenv("MCP_WRITES_UNTIL", "1500")
+    monkeypatch.setattr(server, "enforce_write_window", _idle)
+
+    async def scenario():
+        handler = _ListChanged()
+        async with Client(server.mcp, message_handler=handler) as c:
+            assert EXPECTED_WRITE_TOOLS <= {t.name for t in await c.list_tools()}
+            fake_time.mono += 600  # suspend: monotonic moves, wall clock is stale
+            assert {t.name for t in await c.list_tools()} == EXPECTED_READ_TOOLS
+            await asyncio.wait_for(handler.event.wait(), timeout=5)
+
+    _run(scenario())
+    assert server._write_window_closed is True
+
+
+def test_restart_px_client_rechecks_before_enabling(monkeypatch, fake_time):
+    monkeypatch.setenv("MCP_WRITES_UNTIL", "1060")
+    monkeypatch.setenv("SLC_CLI_WRITE_ENABLED", "true")
+    sent: list[str] = []
+
+    def fake_sleep(seconds):
+        fake_time.advance(seconds)
+
+    # The client reports stopped after 70 s, 10 s after the window closed.
+    status = iter(["running"] * 13 + ["not running"])
+
+    def post(device_id, path, body=None):
+        sent.append(body["commands"])
+        if body["commands"] == "show px status":
+            return {"ok": True, "data": {"message": [f"Status of Client: {next(status)}"]}}
+        return {"ok": True, "data": {}}
+
+    with patch.object(server, "_call_post", side_effect=post), patch.object(server.time, "sleep", side_effect=fake_sleep):
+        result = server.restart_px_client("d1", confirm=True, timeout_seconds=120)
+
+    assert result["ok"] is False
+    assert "read-only" in result["error"]
+    assert "stopped but not started again" in result["error"]
+    assert sent[0] == "set px client disable"
+    assert "set px client enable" not in sent
+
+
+def test_restart_px_client_enables_inside_the_window(monkeypatch, fake_time):
+    monkeypatch.setenv("SLC_CLI_WRITE_ENABLED", "true")
+    sent: list[str] = []
+
+    def post(device_id, path, body=None):
+        sent.append(body["commands"])
+        if body["commands"] == "show px status":
+            return {"ok": True, "data": {"message": ["Status of Client: not running"]}}
+        return {"ok": True, "data": {}}
+
+    with patch.object(server, "_call_post", side_effect=post), patch.object(server.time, "sleep"):
+        result = server.restart_px_client("d1", confirm=True)
+    assert result["ok"] is True
+    assert sent == ["set px client disable", "show px status", "set px client enable"]
+
+
+def test_timer_closes_the_write_window_in_real_time(monkeypatch, fresh_visibility):
+    monkeypatch.setenv("MCP_WRITES_UNTIL", str(int(time.time()) + 2))
 
     async def scenario():
         handler = _ListChanged()
@@ -390,6 +505,14 @@ def test_lifespan_closes_the_write_window_in_real_time(monkeypatch, fresh_visibi
             assert {t.name for t in await c.list_tools()} == EXPECTED_READ_TOOLS
 
     _run(scenario())
+
+
+def test_server_needs_no_custom_lifespan():
+    # Applications that mount mcp.http_app() without its lifespan must not hit a
+    # missing-lifespan error because of the write window.
+    from fastmcp.server.server import default_lifespan
+
+    assert server.mcp._lifespan is default_lifespan
 
 
 def test_no_window_means_no_timer(monkeypatch, fresh_visibility):

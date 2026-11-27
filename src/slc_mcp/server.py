@@ -6,7 +6,6 @@ import re
 import sys
 import time
 import weakref
-from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -23,17 +22,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-@asynccontextmanager
-async def _lifespan(server):
-    """Runs once per server process: closes the write window when MCP_WRITES_UNTIL passes."""
-    task = asyncio.create_task(enforce_write_window())
-    try:
-        yield {}
-    finally:
-        task.cancel()
-
-
-mcp = FastMCP("slc-mcp-server", lifespan=_lifespan)
+mcp = FastMCP("slc-mcp-server")
 
 from slc_mcp import cli_policy, client, write_policy
 from slc_mcp.cli_policy import CLIPolicyViolation
@@ -59,6 +48,7 @@ WRITE_TOOLS: set[str] = set()
 # Decided once, at import: write tools are registered only if writes are allowed
 # at start-up. The write window can close them later; nothing reopens them
 # without a restart.
+write_policy.mark_start()
 WRITES_AT_START = write_policy.writes_allowed()
 log.info("slc-mcp-server: %s", write_policy.describe())
 
@@ -90,6 +80,13 @@ def write_tool(fn):
     return guarded
 
 
+def _write_gate(name: str) -> dict | None:
+    """An error dict when writes are off. Multi-step write tools call it before each device write."""
+    if not write_policy.writes_allowed():
+        return client._err(write_policy.refusal(name))
+    return None
+
+
 # Sessions that have sent at least one message, so a tools/list_changed
 # notification can reach each of them when the write window closes.
 _live_sessions: weakref.WeakSet = weakref.WeakSet()
@@ -103,6 +100,7 @@ class WritePolicyMiddleware(Middleware):
     """
 
     async def on_message(self, context, call_next):
+        _start_write_timer()
         ctx = context.fastmcp_context
         if ctx is not None and ctx.request_context is not None:
             try:
@@ -115,6 +113,12 @@ class WritePolicyMiddleware(Middleware):
         name = context.message.name
         if name in WRITE_TOOLS and not write_policy.writes_allowed():
             raise ToolError(write_policy.refusal(name))
+        return await call_next(context)
+
+    async def on_list_tools(self, context, call_next):
+        # Catches a window that closed while the timer slept (host suspend, clock change).
+        if WRITES_AT_START and not _write_window_closed and not write_policy.writes_allowed():
+            await close_write_window()
         return await call_next(context)
 
 
@@ -141,20 +145,40 @@ async def close_write_window() -> None:
 async def enforce_write_window(sleep=asyncio.sleep, max_step: float = 60.0) -> None:
     """Wait for MCP_WRITES_UNTIL, then close the write window.
 
-    Sleeps in steps of at most max_step seconds and re-reads write_policy.clock
-    after each, so a host clock change or suspend is honored.
+    Sleeps in steps of at most max_step seconds and re-reads both clocks after
+    each, so a host clock change or suspend is honored.
     """
     if not WRITES_AT_START or write_policy.read_only():
         return
-    until = write_policy.writes_until()
-    if until is None:
+    if write_policy.seconds_left() is None:
         return
     while True:
-        remaining = until - write_policy.clock()
-        if remaining <= 0:
+        remaining = write_policy.seconds_left()
+        if remaining is None or remaining <= 0:
             break
         await sleep(min(remaining, max_step))
     await close_write_window()
+
+
+_write_timer: asyncio.Task | None = None
+
+
+def _start_write_timer() -> None:
+    """Start enforce_write_window once per event loop, on the first message.
+
+    Started from middleware rather than a server lifespan, so an application
+    that mounts mcp.http_app() without running its lifespan still works.
+    """
+    global _write_timer
+    if not WRITES_AT_START or _write_window_closed:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    if _write_timer is not None and not _write_timer.done() and _write_timer.get_loop() is loop:
+        return
+    _write_timer = loop.create_task(enforce_write_window())
 
 _SENSITIVE_CLI_PATTERN = re.compile(r"\b(password|secret|token|community|snmp)\b", re.IGNORECASE)
 
@@ -668,6 +692,9 @@ def restart_px_client(
     if guard:
         return guard
 
+    gate = _write_gate("restart_px_client")
+    if gate:
+        return gate
     disable_result = _call_post(device_id, "/config/batch", {"commands": "set px client disable"})
     if not disable_result["ok"]:
         return disable_result
@@ -689,6 +716,13 @@ def restart_px_client(
             "Try stop_px_client first and wait before calling restart_px_client again."
         )
 
+    gate = _write_gate("restart_px_client")
+    if gate:
+        gate["error"] = (
+            "The Percepxion client was stopped but not started again: " + gate["error"]
+            + " Start it with start_px_client once writes are on."
+        )
+        return gate
     return _call_post(device_id, "/config/batch", {"commands": "set px client enable"})
 
 

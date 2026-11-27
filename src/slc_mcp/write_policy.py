@@ -5,16 +5,17 @@ state) or a write tool. Two settings decide whether write tools are available:
 
 - MCP_READ_ONLY: true registers read tools only. A call to a write tool by name
   is refused, and SLC_CLI_WRITE_ENABLED is treated as false. Default false.
-- MCP_WRITES_UNTIL: epoch seconds, honored only when MCP_READ_ONLY is false.
-  Write tools work until that time and are refused after it. A time already in
-  the past at start-up means read-only.
+- MCP_WRITES_UNTIL: whole epoch seconds, honored only when MCP_READ_ONLY is
+  false, at most 7 days after start-up. Write tools work until that time and
+  are refused after it. A time already in the past at start-up means read-only.
 
-Both settings fail closed: a value that can't be parsed means read-only.
+Both settings fail closed: a value that can't be used means read-only.
 """
 from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from collections.abc import Callable, Mapping
 
@@ -23,15 +24,41 @@ log = logging.getLogger(__name__)
 READ_ONLY_ENV = "MCP_READ_ONLY"
 WRITES_UNTIL_ENV = "MCP_WRITES_UNTIL"
 
+# A write window longer than this from start-up is refused as a mistake.
+MAX_WINDOW_SECONDS = 7 * 24 * 3600
+# Epoch seconds stay below this until the year 2286; a larger value is almost
+# certainly milliseconds.
+MAX_EPOCH_SECONDS = 10_000_000_000
+
 _TRUE = ("1", "true", "yes", "on")
 _FALSE = ("", "0", "false", "no", "off")
+_INTEGER = re.compile(r"[+-]?[0-9]+")
 
-# Wall clock used for the write window. Tests replace it.
+# Wall and monotonic clocks used for the write window. Tests replace them and
+# call mark_start().
 clock: Callable[[], float] = time.time
+monotonic: Callable[[], float] = time.monotonic
+
+_start_wall: float = clock()
+_start_mono: float = monotonic()
+_logged: set[tuple[str, str]] = set()
+
+
+def mark_start() -> None:
+    """Record the start-up time the write window is measured from."""
+    global _start_wall, _start_mono
+    _start_wall = clock()
+    _start_mono = monotonic()
 
 
 def _env(env: Mapping[str, str] | None) -> Mapping[str, str]:
     return os.environ if env is None else env
+
+
+def _log_once(name: str, value: str, reason: str) -> None:
+    if (name, value) not in _logged:
+        _logged.add((name, value))
+        log.error("%s=%r %s; write tools are off.", name, value, reason)
 
 
 def read_only(env: Mapping[str, str] | None = None) -> bool:
@@ -41,54 +68,54 @@ def read_only(env: Mapping[str, str] | None = None) -> bool:
         return True
     if value in _FALSE:
         return False
-    log.error("%s=%r is not true or false; running read-only.", READ_ONLY_ENV, value)
+    _log_once(READ_ONLY_ENV, value, "is not true or false")
     return True
 
 
-class _Invalid:
-    pass
+def writes_until(env: Mapping[str, str] | None = None) -> int | None:
+    """The write window's end in epoch seconds, or None when there is no window.
 
-
-_INVALID = _Invalid()
-
-
-def _parse_writes_until(env: Mapping[str, str] | None) -> float | None | _Invalid:
+    A value that isn't a whole number of epoch seconds, is above 1e10 (likely
+    milliseconds), or ends more than 7 days after start-up returns 0, a time in
+    the past, so writes stay off. Nothing here raises on a bad value.
+    """
     raw = (_env(env).get(WRITES_UNTIL_ENV) or "").strip()
     if not raw:
         return None
-    try:
-        value = float(raw)
-    except ValueError:
-        return _INVALID
-    if value != value or value in (float("inf"), float("-inf")):
-        return _INVALID
+    if len(raw) > 20 or not _INTEGER.fullmatch(raw):
+        _log_once(WRITES_UNTIL_ENV, raw, "is not a whole number of epoch seconds")
+        return 0
+    value = int(raw)
+    if value > MAX_EPOCH_SECONDS:
+        _log_once(WRITES_UNTIL_ENV, raw, "is above 1e10, so it looks like milliseconds, not seconds")
+        return 0
+    if value - _start_wall > MAX_WINDOW_SECONDS:
+        _log_once(WRITES_UNTIL_ENV, raw, "is more than 7 days after start-up")
+        return 0
     return value
 
 
-def writes_until(env: Mapping[str, str] | None = None) -> float | None:
-    """The write window's end in epoch seconds, or None when there is no window.
+def seconds_left(env: Mapping[str, str] | None = None) -> float | None:
+    """Seconds until the write window closes: None with no window, 0 or less once closed.
 
-    An unparseable value returns 0.0, a time in the past, so writes stay off.
+    The window closes at the earlier of the wall-clock deadline and the same
+    distance from start-up on the monotonic clock, so neither a wall-clock change
+    nor a suspended host stretches it.
     """
-    value = _parse_writes_until(env)
-    if isinstance(value, _Invalid):
-        log.error(
-            "%s=%r is not a number of epoch seconds; write tools are off.",
-            WRITES_UNTIL_ENV,
-            _env(env).get(WRITES_UNTIL_ENV),
-        )
-        return 0.0
-    return value
+    until = writes_until(env)
+    if until is None:
+        return None
+    by_wall = until - clock()
+    by_mono = (_start_mono + (until - _start_wall)) - monotonic()
+    return min(by_wall, by_mono)
 
 
-def writes_allowed(env: Mapping[str, str] | None = None, now: float | None = None) -> bool:
+def writes_allowed(env: Mapping[str, str] | None = None) -> bool:
     """True when write tools may run right now."""
     if read_only(env):
         return False
-    until = writes_until(env)
-    if until is None:
-        return True
-    return (clock() if now is None else now) < until
+    left = seconds_left(env)
+    return left is None or left > 0
 
 
 def describe(env: Mapping[str, str] | None = None) -> str:
@@ -98,9 +125,12 @@ def describe(env: Mapping[str, str] | None = None) -> str:
     until = writes_until(env)
     if until is None:
         return "write tools on"
-    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
-    if clock() >= until:
-        return f"write tools off ({WRITES_UNTIL_ENV} {stamp} has passed)"
+    if not writes_allowed(env):
+        return f"write tools off ({WRITES_UNTIL_ENV} has passed or isn't valid)"
+    try:
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(until))
+    except (OverflowError, OSError, ValueError):
+        stamp = str(until)
     return f"write tools on until {stamp} ({WRITES_UNTIL_ENV})"
 
 
