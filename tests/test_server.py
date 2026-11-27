@@ -80,7 +80,7 @@ def test_credential_error_returns_err():
 def test_tool_count():
     from pathlib import Path
     source = Path(server.__file__).read_text()
-    assert source.count("@mcp.tool") == 37
+    assert source.count("@read_tool\ndef ") + source.count("@write_tool\ndef ") == 37
 
 
 # ---------------------------------------------------------------------------

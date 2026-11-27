@@ -120,6 +120,37 @@ claude mcp add --transport http slc http://mcp-host:8770/mcp --header "Authoriza
 
 Other clients take the same URL and `Authorization` header. The token travels in clear over plain HTTP, so put the server behind TLS (a reverse proxy) when clients connect across a network you don't control.
 
+## Read-Only Mode
+
+Every tool is a read tool or a write tool, and says which through the MCP standard tool annotations: `readOnlyHint: true` for reads, `readOnlyHint: false` with `destructiveHint: true` for writes. A write tool changes the device (configuration, firmware, accounts, sessions, the Percepxion client) or this server's own state (`configure_provider`). Clients can use the hints to decide what to auto-approve, and the server can drop write tools entirely:
+
+| Variable | Default | Description |
+|---|---|---|
+| `MCP_READ_ONLY` | `false` | `true` registers read tools only. A write tool isn't in the tool list, a call to one by name is refused with a "read-only" error, and `SLC_CLI_WRITE_ENABLED` and `SLC_CLI_YOLO` are treated as `false` whatever they're set to. |
+| `MCP_WRITES_UNTIL` | unset | Epoch seconds, used only when `MCP_READ_ONLY` is `false`. Write tools work until that time. At that time the server disables them and sends `notifications/tools/list_changed` to connected clients, and any later write call is refused, even from a client still holding the old tool list. A time already past at start-up means read-only. |
+
+Both fail closed: a value the server can't parse means read-only. The server logs which state it started in. Write tools come back only with a restart, for example with a later `MCP_WRITES_UNTIL`:
+
+```bash
+MCP_WRITES_UNTIL=$(( $(date +%s) + 8*3600 )) python run_server.py   # write tools for the next 8 hours
+```
+
+In read-only mode `apply_config_commands` isn't available, so CLI `show` commands sent through it aren't either; the REST read tools cover status, ports, sessions, firmware and configuration export.
+
+| Area | Read tools | Write tools |
+|---|---|---|
+| Auth & Sessions | `get_sessions`, `get_session` | `logout_device`, `terminate_session` |
+| System | `get_system_status`, `get_system_version`, `get_system_identity`, `get_ztp_status` | `update_system_identity`, `reboot_device` |
+| Network | `get_network_interfaces` | |
+| Ports & Connections | `get_slc_ports`, `get_slc_port`, `get_connections`, `get_managed_devices`, `get_managed_device`, `get_cellular_status` | |
+| Firmware | `get_firmware_version`, `get_firmware_update_status`, `check_firmware_updates`, `get_firmware_bootbank`, `get_firmware_log` | `set_firmware_bootbank`, `firmware_update` |
+| Config Management | `export_config_commands`, `export_config_for_edit` | `save_config`, `apply_config_commands`, `restore_config_baseline`, `factory_reset` |
+| Users | `get_sysadmin_user` | `update_sysadmin_user` |
+| Percepxion Client | `get_px_status` | `start_px_client`, `stop_px_client`, `restart_px_client` |
+| Admin | | `configure_provider` |
+
+22 read tools, 15 write tools. `export_config_for_edit` and `get_px_status` use `POST` on the device API but only return data, so they're read tools.
+
 ## CLI Policy
 
 The server enforces a CLI policy layer on top of the SLC device's own permission system. By default, `apply_config_commands` and the Percepxion client write tools (`start_px_client`, `stop_px_client`, `restart_px_client`) reject write commands unless explicitly enabled.
@@ -134,7 +165,7 @@ The server enforces a CLI policy layer on top of the SLC device's own permission
 
 **Built-in deny list** (always blocked unless `SLC_CLI_YOLO=true`): `factory-reset`, `write erase`, `erase startup-config`, `erase flash`, `reload`, `reboot`, `format`, `shutdown`, `power off`, `reset system`, `init 0`, `halt`.
 
-Read-only commands (`show`, `diag`, `ping`, `traceroute`, etc.) are always permitted regardless of `SLC_CLI_WRITE_ENABLED`. The `get_px_status` tool is always permitted.
+Read-only commands (`show`, `diag`, `ping`, `traceroute`, etc.) are always permitted regardless of `SLC_CLI_WRITE_ENABLED`. The `get_px_status` tool is always permitted. While the server is read-only (`MCP_READ_ONLY=true`, or `MCP_WRITES_UNTIL` has passed), `SLC_CLI_WRITE_ENABLED` and `SLC_CLI_YOLO` count as `false`.
 
 This policy layer sits in addition to the SLC device's own user role restrictions. A command that passes the MCP policy layer can still be rejected by the device if the configured account lacks the required role.
 

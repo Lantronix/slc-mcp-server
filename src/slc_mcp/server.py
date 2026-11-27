@@ -1,11 +1,18 @@
+import asyncio
+import functools
 import logging
 import os
 import re
 import sys
 import time
+import weakref
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware
+from mcp.types import ToolAnnotations
 
 load_dotenv()
 logging.basicConfig(
@@ -15,14 +22,139 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-mcp = FastMCP("slc-mcp-server")
 
-from slc_mcp import cli_policy, client
+@asynccontextmanager
+async def _lifespan(server):
+    """Runs once per server process: closes the write window when MCP_WRITES_UNTIL passes."""
+    task = asyncio.create_task(enforce_write_window())
+    try:
+        yield {}
+    finally:
+        task.cancel()
+
+
+mcp = FastMCP("slc-mcp-server", lifespan=_lifespan)
+
+from slc_mcp import cli_policy, client, write_policy
 from slc_mcp.cli_policy import CLIPolicyViolation
 from slc_mcp.providers import CredentialError, get_provider
 from slc_mcp.session import SessionManager
 
 _sessions = SessionManager()
+
+# ---------------------------------------------------------------------------
+# Read and write tools
+# ---------------------------------------------------------------------------
+# Every tool is declared with @read_tool or @write_tool, never with mcp.tool
+# directly. A write tool changes the device, its sessions, or this server's own
+# state. Read-only mode (MCP_READ_ONLY) registers read tools only, and the write
+# window (MCP_WRITES_UNTIL) turns write tools off at a set time. See write_policy.
+
+READ_ANNOTATIONS = ToolAnnotations(readOnlyHint=True)
+WRITE_ANNOTATIONS = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
+
+READ_TOOLS: set[str] = set()
+WRITE_TOOLS: set[str] = set()
+
+# Decided once, at import: write tools are registered only if writes are allowed
+# at start-up. The write window can close them later; nothing reopens them
+# without a restart.
+WRITES_AT_START = write_policy.writes_allowed()
+log.info("slc-mcp-server: %s", write_policy.describe())
+
+
+def read_tool(fn):
+    """Register fn as a read tool (readOnlyHint true)."""
+    READ_TOOLS.add(fn.__name__)
+    mcp.tool(annotations=READ_ANNOTATIONS)(fn)
+    return fn
+
+
+def write_tool(fn):
+    """Register fn as a write tool (readOnlyHint false, destructiveHint true).
+
+    Not registered at all when writes are off at start-up. The returned function
+    also refuses to run while writes are off, so a direct call is refused too.
+    """
+    name = fn.__name__
+    WRITE_TOOLS.add(name)
+
+    @functools.wraps(fn)
+    def guarded(*args, **kwargs):
+        if not write_policy.writes_allowed():
+            return client._err(write_policy.refusal(name))
+        return fn(*args, **kwargs)
+
+    if WRITES_AT_START:
+        mcp.tool(annotations=WRITE_ANNOTATIONS)(guarded)
+    return guarded
+
+
+# Sessions that have sent at least one message, so a tools/list_changed
+# notification can reach each of them when the write window closes.
+_live_sessions: weakref.WeakSet = weakref.WeakSet()
+
+
+class WritePolicyMiddleware(Middleware):
+    """Refuses write tool calls by name while writes are off.
+
+    Runs before the tool lookup, so a client with a cached tool list gets a
+    clear "read-only" error rather than "unknown tool".
+    """
+
+    async def on_message(self, context, call_next):
+        ctx = context.fastmcp_context
+        if ctx is not None and ctx.request_context is not None:
+            try:
+                _live_sessions.add(ctx.session)
+            except (RuntimeError, TypeError):
+                pass
+        return await call_next(context)
+
+    async def on_call_tool(self, context, call_next):
+        name = context.message.name
+        if name in WRITE_TOOLS and not write_policy.writes_allowed():
+            raise ToolError(write_policy.refusal(name))
+        return await call_next(context)
+
+
+mcp.add_middleware(WritePolicyMiddleware())
+
+_write_window_closed = False
+
+
+async def close_write_window() -> None:
+    """Disable every write tool and tell connected clients the tool list changed."""
+    global _write_window_closed
+    if _write_window_closed:
+        return
+    _write_window_closed = True
+    mcp.disable(names=set(WRITE_TOOLS))
+    log.info("slc-mcp-server: %s passed, write tools disabled", write_policy.WRITES_UNTIL_ENV)
+    for session in list(_live_sessions):
+        try:
+            await session.send_tool_list_changed()
+        except Exception as exc:  # a closed session must not stop the others
+            log.debug("tools/list_changed not delivered: %s", exc)
+
+
+async def enforce_write_window(sleep=asyncio.sleep, max_step: float = 60.0) -> None:
+    """Wait for MCP_WRITES_UNTIL, then close the write window.
+
+    Sleeps in steps of at most max_step seconds and re-reads write_policy.clock
+    after each, so a host clock change or suspend is honored.
+    """
+    if not WRITES_AT_START or write_policy.read_only():
+        return
+    until = write_policy.writes_until()
+    if until is None:
+        return
+    while True:
+        remaining = until - write_policy.clock()
+        if remaining <= 0:
+            break
+        await sleep(min(remaining, max_step))
+    await close_write_window()
 
 _SENSITIVE_CLI_PATTERN = re.compile(r"\b(password|secret|token|community|snmp)\b", re.IGNORECASE)
 
@@ -108,7 +240,7 @@ def _call_patch(device_id: str, path: str, body: dict | None = None) -> dict:
 # Admin
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@write_tool
 def configure_provider(provider: str) -> dict:
     """Switch the active credential provider and clear all cached sessions.
     Valid values: env, percepxion, vault, aws, azure, cyberark, command."""
@@ -142,25 +274,25 @@ def configure_provider(provider: str) -> dict:
 # Auth & Sessions
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@write_tool
 def logout_device(device_id: str) -> dict:
     """Invalidate the current API session token for the device."""
     return _call_delete(device_id, "/user/login")
 
 
-@mcp.tool()
+@read_tool
 def get_sessions(device_id: str) -> dict:
     """List all active sessions (web UI, API, WebTerm) on the device."""
     return _call_get(device_id, "/sessions")
 
 
-@mcp.tool()
+@read_tool
 def get_session(device_id: str, session_id: str) -> dict:
     """Get details for a specific active session by session ID."""
     return _call_get(device_id, f"/sessions/{session_id}")
 
 
-@mcp.tool()
+@write_tool
 def terminate_session(device_id: str, session_id: str, confirm: bool = False) -> dict:
     """Forcibly terminate an active session by session ID. Requires confirm=True."""
     if not confirm:
@@ -172,25 +304,25 @@ def terminate_session(device_id: str, session_id: str, confirm: bool = False) ->
 # System
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_system_status(device_id: str) -> dict:
     """Get system status for an SLC device."""
     return _call_get(device_id, "/system/status")
 
 
-@mcp.tool()
+@read_tool
 def get_system_version(device_id: str) -> dict:
     """Get firmware and software version information for an SLC device."""
     return _call_get(device_id, "/system/version")
 
 
-@mcp.tool()
+@read_tool
 def get_system_identity(device_id: str) -> dict:
     """Get device identity: hostname, description, contact, location."""
     return _call_get(device_id, "/system/identity")
 
 
-@mcp.tool()
+@write_tool
 def update_system_identity(
     device_id: str,
     hostname: str | None = None,
@@ -208,7 +340,7 @@ def update_system_identity(
     return _call_post(device_id, "/system/identity", body)
 
 
-@mcp.tool()
+@write_tool
 def reboot_device(device_id: str, confirm: bool = False) -> dict:
     """Reboot the device. Requires confirm=True.
 
@@ -221,7 +353,7 @@ def reboot_device(device_id: str, confirm: bool = False) -> dict:
     return _call_post(device_id, "/system/reboot", {})
 
 
-@mcp.tool()
+@read_tool
 def get_ztp_status(device_id: str) -> dict:
     """Get Zero Touch Provisioning status for an SLC device."""
     return _call_get(device_id, "/system/ztp")
@@ -231,7 +363,7 @@ def get_ztp_status(device_id: str) -> dict:
 # Network
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_network_interfaces(device_id: str) -> dict:
     """Get all network interface configurations and status for an SLC device."""
     return _call_get(device_id, "/network/interfaces")
@@ -241,32 +373,32 @@ def get_network_interfaces(device_id: str) -> dict:
 # Ports & Connections
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_slc_ports(device_id: str) -> dict:
     """Get all serial port configurations and status for an SLC device."""
     return _call_get(device_id, "/ports")
 
 
-@mcp.tool()
+@read_tool
 def get_slc_port(device_id: str, port_id: str) -> dict:
     """Get status for a single serial port on an SLC device.
     port_id: port number as a string, e.g. '1' or '16'."""
     return _call_get(device_id, f"/ports/{port_id}/status")
 
 
-@mcp.tool()
+@read_tool
 def get_connections(device_id: str) -> dict:
     """Get all active connections on an SLC device."""
     return _call_get(device_id, "/connections")
 
 
-@mcp.tool()
+@read_tool
 def get_managed_devices(device_id: str) -> dict:
     """Get inventory of all managed devices connected to an SLC device."""
     return _call_get(device_id, "/managed_devices")
 
 
-@mcp.tool()
+@read_tool
 def get_managed_device(device_id: str, managed_device_id: str) -> dict:
     """Get status of a single managed device connected to an SLC device."""
     return _call_get(device_id, f"/managed_devices/{managed_device_id}/status")
@@ -276,7 +408,7 @@ def get_managed_device(device_id: str, managed_device_id: str) -> dict:
 # Cellular
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_cellular_status(device_id: str) -> dict:
     """Get cellular modem status for an SLC device.
 
@@ -291,31 +423,31 @@ def get_cellular_status(device_id: str) -> dict:
 # Firmware
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_firmware_version(device_id: str) -> dict:
     """Get installed firmware version for an SLC device."""
     return _call_get(device_id, "/firmware/version")
 
 
-@mcp.tool()
+@read_tool
 def get_firmware_update_status(device_id: str) -> dict:
     """Get the status of an in-progress or completed firmware update."""
     return _call_get(device_id, "/firmware/update_status")
 
 
-@mcp.tool()
+@read_tool
 def check_firmware_updates(device_id: str) -> dict:
     """Check for available firmware updates on an SLC device."""
     return _call_get(device_id, "/firmware/check")
 
 
-@mcp.tool()
+@read_tool
 def get_firmware_bootbank(device_id: str) -> dict:
     """Get the active firmware boot bank (1 or 2). The device boots from the active bank."""
     return _call_get(device_id, "/firmware/bootbank")
 
 
-@mcp.tool()
+@write_tool
 def set_firmware_bootbank(device_id: str, bank: int, confirm: bool = False) -> dict:
     """Set the firmware boot bank for next reboot (1 or 2). Requires confirm=True.
 
@@ -326,7 +458,7 @@ def set_firmware_bootbank(device_id: str, bank: int, confirm: bool = False) -> d
     return _call_put(device_id, "/firmware/bootbank", {"bank": bank})
 
 
-@mcp.tool()
+@write_tool
 def firmware_update(device_id: str, preserveconfig: bool = True, confirm: bool = False) -> dict:
     """Trigger a firmware update. Requires confirm=True.
 
@@ -339,7 +471,7 @@ def firmware_update(device_id: str, preserveconfig: bool = True, confirm: bool =
     return _call_post(device_id, "/firmware/update", {"preserveconfig": preserveconfig})
 
 
-@mcp.tool()
+@read_tool
 def get_firmware_log(device_id: str) -> dict:
     """Get the log from the most recent firmware update operation."""
     return _call_get(device_id, "/firmware/log")
@@ -349,7 +481,7 @@ def get_firmware_log(device_id: str) -> dict:
 # Config Management
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@write_tool
 def save_config(device_id: str, confirm: bool = False) -> dict:
     """Save running configuration to non-volatile storage on an SLC device.
     Set confirm=True to proceed. Requires explicit confirmation to prevent accidental writes."""
@@ -360,7 +492,7 @@ def save_config(device_id: str, confirm: bool = False) -> dict:
     return _call_post(device_id, "/config/save")
 
 
-@mcp.tool()
+@read_tool
 def export_config_commands(device_id: str) -> dict:
     """Export device configuration as a list of CLI commands that can be replayed.
 
@@ -370,7 +502,7 @@ def export_config_commands(device_id: str) -> dict:
     return _call_get(device_id, "/config/commands")
 
 
-@mcp.tool()
+@write_tool
 def apply_config_commands(device_id: str, commands: list[str], confirm: bool = False) -> dict:
     """Apply a list of CLI commands to the device and return their output. Requires confirm=True.
 
@@ -398,7 +530,7 @@ def apply_config_commands(device_id: str, commands: list[str], confirm: bool = F
     return _call_post(device_id, "/config/batch", {"commands": "\n".join(commands)})
 
 
-@mcp.tool()
+@write_tool
 def restore_config_baseline(device_id: str, confirm: bool = False) -> dict:
     """Restore the device to its saved baseline configuration. Requires confirm=True.
 
@@ -409,7 +541,7 @@ def restore_config_baseline(device_id: str, confirm: bool = False) -> dict:
     return _call_post(device_id, "/config/baseline", {})
 
 
-@mcp.tool()
+@read_tool
 def export_config_for_edit(device_id: str) -> dict:
     """Export the full device configuration blob for editing.
 
@@ -419,7 +551,7 @@ def export_config_for_edit(device_id: str) -> dict:
     return _call_post(device_id, "/config/edit", {})
 
 
-@mcp.tool()
+@write_tool
 def factory_reset(device_id: str, confirm: str = "") -> dict:
     """Reset device to factory defaults. Destructive and irreversible.
 
@@ -436,13 +568,13 @@ def factory_reset(device_id: str, confirm: str = "") -> dict:
 # Users
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_sysadmin_user(device_id: str) -> dict:
     """Get sysadmin account configuration (password policy, dialback settings)."""
     return _call_get(device_id, "/users/sysadmin")
 
 
-@mcp.tool()
+@write_tool
 def update_sysadmin_user(
     device_id: str,
     new_password: str | None = None,
@@ -478,7 +610,7 @@ def update_sysadmin_user(
 # Percepxion Client
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@read_tool
 def get_px_status(device_id: str) -> dict:
     """Get Percepxion client status on the device.
 
@@ -488,7 +620,7 @@ def get_px_status(device_id: str) -> dict:
     return _call_post(device_id, "/config/batch", {"commands": "show px status"})
 
 
-@mcp.tool()
+@write_tool
 def start_px_client(device_id: str, confirm: bool = False) -> dict:
     """Enable the Percepxion client. Requires confirm=True and SLC_CLI_WRITE_ENABLED=true.
 
@@ -503,7 +635,7 @@ def start_px_client(device_id: str, confirm: bool = False) -> dict:
     return _call_post(device_id, "/config/batch", {"commands": "set px client enable"})
 
 
-@mcp.tool()
+@write_tool
 def stop_px_client(device_id: str, confirm: bool = False) -> dict:
     """Disable the Percepxion client. Requires confirm=True and SLC_CLI_WRITE_ENABLED=true.
 
@@ -518,7 +650,7 @@ def stop_px_client(device_id: str, confirm: bool = False) -> dict:
     return _call_post(device_id, "/config/batch", {"commands": "set px client disable"})
 
 
-@mcp.tool()
+@write_tool
 def restart_px_client(
     device_id: str,
     confirm: bool = False,
